@@ -12,6 +12,13 @@ use std::path::{Path, PathBuf};
 /// Keeps H.264/VP9/MPEG-4 happy with odd-sized sources.
 const EVEN: &str = "scale=trunc(iw/2)*2:trunc(ih/2)*2";
 
+/// How to get ffmpeg on this platform.
+pub const FFMPEG_MISSING: &str = if cfg!(windows) {
+    "ffmpeg is not installed. Install it with `winget install Gyan.FFmpeg`."
+} else {
+    "ffmpeg is not installed. Install it with `brew install ffmpeg`."
+};
+
 pub(crate) struct Ff<'a> {
     env: &'a Env,
     args: Vec<OsString>,
@@ -50,7 +57,7 @@ impl<'a> Ff<'a> {
         let mut cmd = self
             .env
             .ffmpeg_command()
-            .ok_or_else(|| Error::msg("ffmpeg is not installed. Install it with `brew install ffmpeg`."))?;
+            .ok_or_else(|| Error::msg(FFMPEG_MISSING))?;
         cmd.args(["-loglevel", "error", "-progress", "pipe:1", "-nostats"]);
         cmd.args(&self.args);
         cmd.arg(out);
@@ -140,6 +147,10 @@ fn h264_args(env: &Env, crf: u32) -> Result<Vec<String>> {
         ])
     } else if env.has_encoder("h264_videotoolbox") {
         Ok(s(&["-c:v", "h264_videotoolbox", "-q:v", "65", "-pix_fmt", "yuv420p"]))
+    } else if env.has_encoder("h264_mf") {
+        // Media Foundation (Windows), quality-based rate control.
+        let quality = (100 - crf.min(51) * 2).clamp(1, 100).to_string();
+        Ok(vec!["-c:v".into(), "h264_mf".into(), "-rate_control".into(), "quality".into(), "-quality".into(), quality, "-pix_fmt".into(), "nv12".into()])
     } else {
         Err(Error::msg("This ffmpeg build cannot encode H.264 video."))
     }

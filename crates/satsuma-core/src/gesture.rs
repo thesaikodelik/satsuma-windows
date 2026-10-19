@@ -100,6 +100,23 @@ impl Mods {
             .join("+")
     }
 
+    /// Key names as printed on this platform's keyboards: "Ctrl+Shift" on Windows (where
+    /// Option is Alt and Command is the Windows key), [`Mods::describe`] elsewhere.
+    pub fn label(self) -> String {
+        if !cfg!(windows) {
+            return self.describe();
+        }
+        if self.is_empty() {
+            return "None".into();
+        }
+        [(Mods::CONTROL, "Ctrl"), (Mods::OPTION, "Alt"), (Mods::SHIFT, "Shift"), (Mods::COMMAND, "Win")]
+            .iter()
+            .filter(|(m, _)| self.contains(*m))
+            .map(|(_, n)| *n)
+            .collect::<Vec<_>>()
+            .join("+")
+    }
+
     pub fn from_names<'a>(names: impl IntoIterator<Item = &'a str>) -> Option<Mods> {
         let mut m = Mods::NONE;
         for n in names {
@@ -146,12 +163,19 @@ pub struct WheelCombos {
     pub actions: Mods,
 }
 
+impl WheelCombos {
+    /// Shift / Command / Control.
+    pub const MAC: WheelCombos = WheelCombos { conversions: Mods::SHIFT, tools: Mods::COMMAND, actions: Mods::CONTROL };
+    /// Shift / Ctrl / Alt: tapping the Windows key would open the Start menu.
+    pub const WINDOWS: WheelCombos = WheelCombos { conversions: Mods::SHIFT, tools: Mods::CONTROL, actions: Mods::OPTION };
+}
+
 impl Default for WheelCombos {
     fn default() -> Self {
-        WheelCombos {
-            conversions: Mods::SHIFT,
-            tools: Mods::COMMAND,
-            actions: Mods::CONTROL,
+        if cfg!(windows) {
+            WheelCombos::WINDOWS
+        } else {
+            WheelCombos::MAC
         }
     }
 }
@@ -286,7 +310,7 @@ mod tests {
     }
 
     fn run(t: &mut DragTracker, s: Sample) -> Option<Effect> {
-        t.update(&s, &WheelCombos::default())
+        t.update(&s, &WheelCombos::MAC)
     }
 
     #[test]
@@ -401,12 +425,13 @@ mod tests {
         assert_eq!(m.symbols(), "⌥⇧");
         assert_eq!(Mods::from_names(["shift", "alt"]), Some(m));
         assert_eq!(Mods::from_names(["hyper"]), None);
-        let json = serde_json::to_string(&WheelCombos::default()).unwrap();
+        let json = serde_json::to_string(&WheelCombos::MAC).unwrap();
         assert_eq!(
             json,
             r#"{"conversions":["shift"],"tools":["command"],"actions":["control"]}"#
         );
         let back: WheelCombos = serde_json::from_str(&json).unwrap();
-        assert_eq!(back, WheelCombos::default());
+        assert_eq!(back, WheelCombos::MAC);
+        assert_eq!(Mods::CONTROL.union(Mods::SHIFT).label(), if cfg!(windows) { "Ctrl+Shift" } else { "Control+Shift" });
     }
 }

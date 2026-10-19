@@ -40,6 +40,8 @@ impl Action {
 
     pub fn title(self) -> &'static str {
         match self {
+            // Windows shares through the system Share sheet (Nearby Sharing, Mail, Phone Link …).
+            Action::AirDrop if cfg!(windows) => "SHARE",
             Action::AirDrop => "AIRDROP",
             Action::Float => "FLOAT",
             Action::Copy => "COPY",
@@ -51,6 +53,7 @@ impl Action {
 
     pub fn name(self) -> &'static str {
         match self {
+            Action::AirDrop if cfg!(windows) => "Share",
             Action::AirDrop => "AirDrop",
             Action::Float => "Float",
             Action::Copy => "Copy",
@@ -75,6 +78,7 @@ impl Action {
         match self {
             Action::AirDrop => "Share files and folders with nearby devices.",
             Action::Float => "Keep files in a floating shelf and drag them into other apps.",
+            Action::Copy if cfg!(windows) => "Copy files to the clipboard, ready to paste in File Explorer.",
             Action::Copy => "Copy files to the clipboard, ready to paste in Finder.",
             Action::Move => "Choose a folder and move the originals there.",
             Action::CopyPath => "Copy full paths as text, one per line.",

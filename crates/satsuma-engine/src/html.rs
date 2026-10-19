@@ -475,7 +475,7 @@ pub fn printable(html: &str) -> String {
                 }
                 Token::Close { name } if name == "table" => {
                     let rows = table.take().unwrap_or_default();
-                    out.push_str("<pre style=\"font-family: Menlo; font-size: 10px\">");
+                    out.push_str("<pre style=\"font-family: Menlo, Consolas, monospace; font-size: 10px\">");
                     out.push_str(&escape(&aligned_rows(&rows)));
                     out.push_str("</pre>\n");
                 }

@@ -1,4 +1,4 @@
-//! What this Mac can actually do, so the wheel only shows working petals.
+//! What this computer can actually do, so the wheel only shows working petals.
 
 use crate::env::Env;
 use crate::{image, media};
@@ -19,7 +19,7 @@ pub fn conversion_available(env: &Env, from: Format, to: Format) -> bool {
             } else if to == Webp {
                 env.has_encoder("libwebp")
             } else {
-                image::sips_format(to).is_some()
+                image::sips_format(to).is_some() && can_write_image(to)
             }
         }
         Category::Audio => env.has_ffmpeg() && media::audio_codec_args(env, to, 192).is_ok(),
@@ -31,32 +31,57 @@ pub fn conversion_available(env: &Env, from: Format, to: Format) -> bool {
                     _ => media::video_codec_args(env, to).is_ok(),
                 }
         }
-        Category::Document | Category::Spreadsheet | Category::Subtitle | Category::Archive => true,
+        Category::Document | Category::Spreadsheet => !matches!(to, Pdf | Png | Jpg) || can_print(env),
+        Category::Subtitle | Category::Archive => true,
     }
 }
 
+/// Image formats this machine can encode (on Windows, HEIC needs the Store's HEVC extension
+/// and AVIF needs an AV1 encoder in ffmpeg).
+#[cfg(windows)]
+fn can_write_image(f: Format) -> bool {
+    crate::win::raster::can_write(f)
+}
+
+#[cfg(not(windows))]
+fn can_write_image(_: Format) -> bool {
+    true
+}
+
+/// Documents become PDFs (and page images) through CoreText on macOS, Edge on Windows.
+#[cfg(windows)]
+fn can_print(env: &Env) -> bool {
+    env.browser.is_some()
+}
+
+#[cfg(not(windows))]
+fn can_print(_: &Env) -> bool {
+    true
+}
+
 fn has_h264(env: &Env) -> bool {
-    env.pick_encoder(&["libx264", "h264_videotoolbox"]).is_some()
+    env.pick_encoder(&["libx264", "h264_videotoolbox", "h264_mf"]).is_some()
 }
 
 pub fn tool_available(env: &Env, tool: Tool, input: Format) -> bool {
     use Tool::*;
     if tool.is_interactive() {
         return tool.has_editor()
-            && matches!(input, Jpg | Png | Heic | Tiff)
+            && (matches!(input, Jpg | Png | Tiff) || (input == Heic && can_write_image(Heic)))
             || (tool.has_editor() && input == Webp && env.has_encoder("libwebp"));
     }
     let ff = env.has_ffmpeg();
     let audio_codec = |f: Format| ff && media::audio_codec_args(env, f, 192).is_ok();
     match tool {
         Compress => match input {
-            Jpg | Heic | Tiff | Avif => true,
+            Jpg | Tiff => true,
+            Heic | Avif => can_write_image(input),
             Png => ff,
             Webp => env.has_encoder("libwebp"),
             Pdf => true,
             Wav | Flac => ff,
             Mp3 | M4a => audio_codec(input),
-            Mp4 | Mov | Mkv => ff && (has_h264(env) || env.pick_encoder(&["hevc_videotoolbox", "libx265"]).is_some()),
+            Mp4 | Mov | Mkv => ff && (has_h264(env) || env.pick_encoder(&["hevc_videotoolbox", "libx265", "hevc_mf"]).is_some()),
             _ => false,
         },
         RemoveMetadata => match input.category() {

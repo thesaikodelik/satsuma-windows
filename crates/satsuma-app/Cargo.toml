@@ -17,8 +17,17 @@ demo = []
 satsuma-core.workspace = true
 satsuma-engine.workspace = true
 serde_json.workspace = true
+
+[target.'cfg(target_os = "macos")'.dependencies]
 objc2.workspace = true
 objc2-foundation.workspace = true
 objc2-app-kit.workspace = true
 objc2-core-foundation.workspace = true
 objc2-service-management.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+windows.workspace = true
+dunce = "1"
+
+[target.'cfg(windows)'.build-dependencies]
+winres = "0.1"

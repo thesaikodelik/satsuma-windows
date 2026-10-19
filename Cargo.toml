@@ -23,6 +23,17 @@ objc2-core-graphics = "0.3"
 objc2-core-text = "0.3"
 objc2-image-io = "0.3"
 objc2-service-management = "0.3"
+windows = { version = "0.62", features = [
+  "Win32_Foundation", "Win32_System_Com", "Win32_System_Ole", "Win32_System_WinRT", "Win32_Graphics_Imaging",
+  "Win32_Graphics_Gdi", "Win32_Graphics_Direct2D", "Win32_Graphics_Direct2D_Common", "Win32_Graphics_DirectWrite",
+  "Win32_Graphics_Dxgi_Common", "Win32_Graphics_Dwm", "Win32_UI_WindowsAndMessaging", "Win32_UI_Shell", "Win32_UI_Shell_Common",
+  "Win32_UI_Input_KeyboardAndMouse", "Win32_UI_Controls", "Win32_UI_Controls_Dialogs", "Win32_UI_HiDpi", "Win32_System_LibraryLoader",
+  "Win32_System_DataExchange", "Win32_System_Memory", "Win32_System_Registry", "Win32_System_Threading", "Win32_Media_Audio",
+  "Win32_Media", "Win32_Storage_FileSystem", "Win32_System_SystemServices", "Win32_System_Com_StructuredStorage", "Win32_System_Variant",
+  "Win32_UI_Shell_PropertiesSystem", "Win32_Security",
+  "Foundation", "Foundation_Collections", "Storage", "Storage_Streams", "Graphics_Imaging", "Data_Pdf", "Media_Ocr", "Globalization",
+  "ApplicationModel_DataTransfer", "UI", "UI_ViewManagement",
+] }
 
 [profile.release]
 lto = "thin"

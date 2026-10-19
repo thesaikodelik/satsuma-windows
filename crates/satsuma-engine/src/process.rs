@@ -34,6 +34,17 @@ impl Cancel {
     }
 }
 
+/// Keeps console tools from flashing a window when started by the Windows app.
+pub fn hide_console(cmd: &mut Command) -> &mut Command {
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        cmd.creation_flags(CREATE_NO_WINDOW);
+    }
+    cmd
+}
+
 /// Runs `cmd`, calling `on_line` for each stdout line. Fails with the tail of stderr on a
 /// non-zero exit, and kills the process when `cancel` is set.
 pub fn run(cmd: &mut Command, cancel: &Cancel, on_line: &mut dyn FnMut(&str)) -> Result<()> {
@@ -43,7 +54,7 @@ pub fn run(cmd: &mut Command, cancel: &Cancel, on_line: &mut dyn FnMut(&str)) ->
         .file_name()
         .map(|n| n.to_string_lossy().into_owned())
         .unwrap_or(program.clone());
-    let mut child = cmd
+    let mut child = hide_console(cmd)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -109,7 +120,7 @@ pub fn run(cmd: &mut Command, cancel: &Cancel, on_line: &mut dyn FnMut(&str)) ->
 
 /// Runs a command to completion and returns its stdout and stderr, regardless of exit status.
 pub fn capture(cmd: &mut Command) -> Result<(bool, String, String)> {
-    let out = cmd.stdin(Stdio::null()).output()?;
+    let out = hide_console(cmd).stdin(Stdio::null()).output()?;
     Ok((
         out.status.success(),
         String::from_utf8_lossy(&out.stdout).into_owned(),
@@ -121,11 +132,24 @@ pub fn capture(cmd: &mut Command) -> Result<(bool, String, String)> {
 mod tests {
     use super::*;
 
+    /// A shell command line: `/bin/sh -c` on Unix, `cmd /C` on Windows.
+    fn shell(script: &str) -> Command {
+        if cfg!(windows) {
+            let mut c = Command::new("cmd");
+            c.args(["/C", script]);
+            c
+        } else {
+            let mut c = Command::new("/bin/sh");
+            c.args(["-c", script]);
+            c
+        }
+    }
+
     #[test]
     fn collects_lines_and_reports_failures() {
         let mut lines = Vec::new();
         run(
-            Command::new("/bin/sh").args(["-c", "echo one; echo two"]),
+            &mut shell(if cfg!(windows) { "echo one& echo two" } else { "echo one; echo two" }),
             &Cancel::new(),
             &mut |l| lines.push(l.to_string()),
         )
@@ -133,7 +157,7 @@ mod tests {
         assert_eq!(lines, ["one", "two"]);
 
         let err = run(
-            Command::new("/bin/sh").args(["-c", "echo boom >&2; exit 3"]),
+            &mut shell(if cfg!(windows) { "echo boom 1>&2& exit 3" } else { "echo boom >&2; exit 3" }),
             &Cancel::new(),
             &mut |_| {},
         )
@@ -150,7 +174,15 @@ mod tests {
             c2.cancel();
         });
         let started = std::time::Instant::now();
-        let err = run(Command::new("/bin/sleep").arg("10"), &cancel, &mut |_| {}).unwrap_err();
+        // Spawned directly: killing a `cmd /C` wrapper would leave its child holding the pipes.
+        let mut sleep = if cfg!(windows) {
+            let mut c = Command::new("ping");
+            c.args(["-n", "11", "127.0.0.1"]);
+            c
+        } else {
+            shell("sleep 10")
+        };
+        let err = run(&mut sleep, &cancel, &mut |_| {}).unwrap_err();
         assert!(matches!(err, Error::Cancelled));
         assert!(started.elapsed() < Duration::from_secs(5));
     }

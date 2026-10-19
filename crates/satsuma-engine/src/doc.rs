@@ -3,14 +3,24 @@
 
 use crate::env::Env;
 use crate::html::{document, escape, html_to_markdown};
+#[cfg_attr(windows, allow(unused_imports))]
 use crate::process::{run, Cancel};
 use crate::{epub, pdf, Error, Result};
 use satsuma_core::naming::stem_of;
 use satsuma_core::Format::{self, *};
 use std::path::{Path, PathBuf};
+#[cfg_attr(windows, allow(unused_imports))]
 use std::process::Command;
 
 /// `textutil -convert <to>`; `to` is one of txt, html, rtf, rtfd, doc, docx, odt.
+#[cfg(windows)]
+pub fn textutil(_env: &Env, input: &Path, out: &Path, to: &str, cancel: &Cancel) -> Result<()> {
+    cancel.check()?;
+    crate::win::textutil::convert(input, out, to)
+}
+
+/// `textutil -convert <to>`; `to` is one of txt, html, rtf, rtfd, doc, docx, odt.
+#[cfg(target_os = "macos")]
 pub fn textutil(env: &Env, input: &Path, out: &Path, to: &str, cancel: &Cancel) -> Result<()> {
     let mut cmd = Command::new(&env.textutil);
     cmd.args(["-convert", to]);
@@ -176,7 +186,28 @@ fn read_text(path: &Path) -> Result<String> {
     Ok(String::from_utf8_lossy(bytes).into_owned())
 }
 
+/// Writes HTML as a paginated PDF (printed by Edge on Windows).
+#[cfg(windows)]
+pub fn html_to_pdf(env: &Env, html: &str, out: &Path, tmp: &Path, cancel: &Cancel) -> Result<()> {
+    // Edge lays out tables and lists itself, so the HTML goes in as is (no `printable`).
+    crate::win::browser::print_to_pdf(env, html, out, tmp, cancel)
+}
+
+/// Writes monospaced text (e.g. a spreadsheet table) as a PDF.
+#[cfg(windows)]
+pub fn monospace_to_pdf(text: &str, out: &Path, tmp: &Path) -> Result<()> {
+    let widest = text.lines().map(|l| l.chars().count()).max().unwrap_or(1).max(1);
+    let size = (468.0 / (widest as f64 * 0.61)).clamp(5.0, 10.0);
+    let body = format!(
+        "<pre style=\"font-family: Consolas, 'Courier New', monospace; font-size: {size:.1}pt; margin: 0\">{}</pre>",
+        escape(text)
+    );
+    let env = Env::discover();
+    crate::win::browser::print_to_pdf(&env, &document("Table", &body), out, tmp, &Cancel::new())
+}
+
 /// Writes HTML as a paginated PDF (HTML → RTF via textutil → CoreText).
+#[cfg(target_os = "macos")]
 pub fn html_to_pdf(env: &Env, html: &str, out: &Path, tmp: &Path, cancel: &Cancel) -> Result<()> {
     let src = crate::image::unique_in(tmp, "page.html");
     std::fs::write(&src, crate::html::printable(html))?;
@@ -186,6 +217,7 @@ pub fn html_to_pdf(env: &Env, html: &str, out: &Path, tmp: &Path, cancel: &Cance
 }
 
 /// Writes monospaced text (e.g. a spreadsheet table) as a PDF.
+#[cfg(target_os = "macos")]
 pub fn monospace_to_pdf(text: &str, out: &Path, tmp: &Path) -> Result<()> {
     let widest = text.lines().map(|l| l.chars().count()).max().unwrap_or(1).max(1);
     let size = (468.0 / (widest as f64 * 0.61)).clamp(5.0, 10.0);

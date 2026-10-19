@@ -158,9 +158,7 @@ fn jpeg_metadata_is_removed_losslessly() {
     let out = std::fs::read(&clean).unwrap();
     assert!(!out.windows(3).any(|w| w == b"GPS"));
     // Still a decodable JPEG.
-    let png2 = dir.path().join("check.png");
-    let st = Command::new("/usr/bin/sips").args(["-s", "format", "png"]).arg(&clean).arg("--out").arg(&png2).output().unwrap();
-    assert!(st.status.success() && png2.exists());
+    assert!(satsuma_engine::imaging::load(&clean).is_ok());
 }
 
 fn sine_wav(dir: &Path, name: &str, seconds: f32, layout: &str) -> PathBuf {
@@ -474,7 +472,8 @@ fn archives_convert_and_extract() {
     std::fs::write(src.join("readme.txt"), "hi").unwrap();
     std::fs::write(src.join("docs/a.md"), "# a").unwrap();
     let zip = dir.path().join("little-project.zip");
-    let st = Command::new("/usr/bin/ditto").args(["-c", "-k", "--keepParent"]).arg(&src).arg(&zip).status().unwrap();
+    // bsdtar ships with macOS and Windows 10+.
+    let st = Command::new(&env().tar).args(["--format", "zip", "-cf"]).arg(&zip).arg("-C").arg(dir.path()).arg("little-project").status().unwrap();
     assert!(st.success());
 
     let tgz = convert(&zip, Format::Gz);
@@ -490,7 +489,7 @@ fn archives_convert_and_extract() {
     assert_eq!(out.file_name().unwrap(), "little-project Extracted");
     assert_eq!(std::fs::read_to_string(out.join("little-project/docs/a.md")).unwrap(), "# a");
     // No AppleDouble files sneaked in.
-    let listing = Command::new("/usr/bin/tar").arg("-tf").arg(&tgz).output().unwrap();
+    let listing = Command::new(&env().tar).arg("-tf").arg(&tgz).output().unwrap();
     assert!(!String::from_utf8_lossy(&listing.stdout).contains("._"));
     no_partials_left(dir.path());
 }
@@ -547,16 +546,11 @@ fn images_become_word_documents_with_recognised_text() {
     let png = text_image(dir.path());
     let docx = convert(&png, Format::Docx);
     assert_eq!(docx.file_name().unwrap(), "scan.docx");
-    let txt = dir.path().join("check.txt");
-    let st = Command::new("/usr/bin/textutil").args(["-convert", "txt", "-output"]).arg(&txt).arg(&docx).status().unwrap();
-    assert!(st.success());
-    let text = std::fs::read_to_string(&txt).unwrap();
+    let text = std::fs::read_to_string(convert(&docx, Format::Txt)).unwrap();
     assert!(text.contains("Harvest Report") && text.contains("forty crates"), "{text}");
 
     // A picture without text is embedded instead.
-    let blank = dir.path().join("blank.png");
-    let st = Command::new("/usr/bin/sips").args(["-s", "format", "png", "-z", "64", "64"]).arg(sample_png(dir.path(), "x.png", 64, 64)).arg("--out").arg(&blank).output().unwrap();
-    assert!(st.status.success());
+    let blank = sample_png(dir.path(), "blank.png", 64, 64);
     // Flatten to a single colour so there is nothing to read.
     let data = std::fs::read(&blank).unwrap();
     let img = satsuma_engine::imaging::crop(&satsuma_engine::imaging::load(&blank).unwrap(), satsuma_core::edit::Rect::new(0.0, 0.0, 2.0, 2.0), Some((64, 64))).unwrap();
@@ -571,10 +565,9 @@ fn images_become_word_documents_with_recognised_text() {
 fn scanned_pdfs_are_read_with_ocr() {
     let dir = tempfile::tempdir().unwrap();
     let png = text_image(dir.path());
-    // sips writes an image-only PDF (no text layer).
+    // An image-only PDF (no text layer), as sips writes it.
     let scanned = dir.path().join("scanned.pdf");
-    let st = Command::new("/usr/bin/sips").args(["-s", "format", "pdf"]).arg(&png).arg("--out").arg(&scanned).output().unwrap();
-    assert!(st.status.success());
+    satsuma_engine::image::sips(env(), &png, &scanned, Format::Pdf, None, None, &Cancel::new()).unwrap();
     assert!(pdf::text(&scanned).unwrap().trim().is_empty());
     let txt = convert(&scanned, Format::Txt);
     let text = std::fs::read_to_string(&txt).unwrap();

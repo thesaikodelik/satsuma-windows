@@ -9,23 +9,32 @@ pub struct Env {
     /// ffmpeg, if installed (audio, video, WebP, collages, PNG compression).
     pub ffmpeg: Option<PathBuf>,
     encoders: HashSet<String>,
+    #[cfg(target_os = "macos")]
     pub sips: PathBuf,
+    #[cfg(target_os = "macos")]
     pub textutil: PathBuf,
+    /// bsdtar: `/usr/bin/tar` on macOS, `%SystemRoot%\System32\tar.exe` on Windows 10 and later.
     pub tar: PathBuf,
+    /// Microsoft Edge (or Chrome), used on Windows to print HTML documents to PDF.
+    #[cfg(windows)]
+    pub browser: Option<PathBuf>,
 }
 
 impl Env {
-    /// Finds tools in `$SATSUMA_FFMPEG`, next to the app bundle, Homebrew and `PATH`.
+    /// Finds tools in `$SATSUMA_FFMPEG`, next to the app, in package-manager folders and on `PATH`.
     pub fn discover() -> Env {
         let ffmpeg = find_ffmpeg();
         let encoders = ffmpeg.as_deref().map(list_encoders).unwrap_or_default();
-        Env {
+        #[cfg(target_os = "macos")]
+        return Env {
             ffmpeg,
             encoders,
             sips: PathBuf::from("/usr/bin/sips"),
             textutil: PathBuf::from("/usr/bin/textutil"),
             tar: PathBuf::from("/usr/bin/tar"),
-        }
+        };
+        #[cfg(windows)]
+        return Env { ffmpeg, encoders, tar: system32("tar.exe"), browser: find_browser() };
     }
 
     /// An environment without ffmpeg (for tests and diagnostics).
@@ -53,6 +62,7 @@ impl Env {
     }
 }
 
+#[cfg(unix)]
 fn is_executable(p: &Path) -> bool {
     use std::os::unix::fs::PermissionsExt;
     p.metadata()
@@ -60,6 +70,63 @@ fn is_executable(p: &Path) -> bool {
         .unwrap_or(false)
 }
 
+#[cfg(windows)]
+fn is_executable(p: &Path) -> bool {
+    p.is_file()
+}
+
+#[cfg(windows)]
+fn system32(name: &str) -> PathBuf {
+    let root = std::env::var_os("SystemRoot").map(PathBuf::from).unwrap_or_else(|| r"C:\Windows".into());
+    root.join("System32").join(name)
+}
+
+/// Edge ships with Windows 10 and 11; Chrome works the same way.
+#[cfg(windows)]
+fn find_browser() -> Option<PathBuf> {
+    let mut candidates: Vec<PathBuf> = Vec::new();
+    if let Some(p) = std::env::var_os("SATSUMA_BROWSER") {
+        candidates.push(PathBuf::from(p));
+    }
+    for var in ["ProgramFiles(x86)", "ProgramFiles", "LOCALAPPDATA"] {
+        if let Some(dir) = std::env::var_os(var).map(PathBuf::from) {
+            candidates.push(dir.join(r"Microsoft\Edge\Application\msedge.exe"));
+            candidates.push(dir.join(r"Google\Chrome\Application\chrome.exe"));
+        }
+    }
+    candidates.into_iter().find(|p| is_executable(p))
+}
+
+#[cfg(windows)]
+fn find_ffmpeg() -> Option<PathBuf> {
+    let mut candidates: Vec<PathBuf> = Vec::new();
+    if let Some(p) = std::env::var_os("SATSUMA_FFMPEG") {
+        candidates.push(PathBuf::from(p));
+    }
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            candidates.push(dir.join("ffmpeg.exe"));
+            candidates.push(dir.join(r"bin\ffmpeg.exe"));
+        }
+    }
+    if let Some(path) = std::env::var_os("PATH") {
+        candidates.extend(std::env::split_paths(&path).map(|d| d.join("ffmpeg.exe")));
+    }
+    // winget, Scoop and Chocolatey shims, and the usual manual install folder.
+    if let Some(local) = std::env::var_os("LOCALAPPDATA").map(PathBuf::from) {
+        candidates.push(local.join(r"Microsoft\WinGet\Links\ffmpeg.exe"));
+    }
+    if let Some(home) = std::env::var_os("USERPROFILE").map(PathBuf::from) {
+        candidates.push(home.join(r"scoop\shims\ffmpeg.exe"));
+    }
+    if let Some(data) = std::env::var_os("ProgramData").map(PathBuf::from) {
+        candidates.push(data.join(r"chocolatey\bin\ffmpeg.exe"));
+    }
+    candidates.push(r"C:\ffmpeg\bin\ffmpeg.exe".into());
+    candidates.into_iter().find(|p| is_executable(p))
+}
+
+#[cfg(not(windows))]
 fn find_ffmpeg() -> Option<PathBuf> {
     let mut candidates: Vec<PathBuf> = Vec::new();
     if let Some(p) = std::env::var_os("SATSUMA_FFMPEG") {
@@ -80,10 +147,10 @@ fn find_ffmpeg() -> Option<PathBuf> {
 }
 
 fn list_encoders(ffmpeg: &Path) -> HashSet<String> {
-    let Ok(out) = Command::new(ffmpeg).args(["-hide_banner", "-encoders"]).output() else {
+    let Ok((_, stdout, _)) = crate::process::capture(Command::new(ffmpeg).args(["-hide_banner", "-encoders"])) else {
         return HashSet::new();
     };
-    parse_encoders(&String::from_utf8_lossy(&out.stdout))
+    parse_encoders(&stdout)
 }
 
 /// Parses `ffmpeg -encoders` output (" A....D libmp3lame  libmp3lame MP3 …").

@@ -1,7 +1,9 @@
 //! Local conversion backends for Satsuma.
 //!
-//! Everything runs on the Mac: `sips` (ImageIO), `textutil`, `tar`, PDFKit, CoreGraphics,
-//! CoreText, and a user-installed ffmpeg for audio and video.
+//! Everything runs locally. On macOS: `sips` (ImageIO), `textutil`, `tar`, PDFKit, CoreGraphics,
+//! CoreText and Vision. On Windows: WIC and pure-Rust codecs, `Windows.Data.Pdf`,
+//! `Windows.Media.Ocr`, Microsoft Edge (HTML → PDF) and the built-in `tar.exe`. Both use a
+//! user-installed ffmpeg for audio and video.
 
 pub mod archive;
 pub mod capability;
@@ -11,11 +13,16 @@ pub mod env;
 pub mod epub;
 pub mod html;
 pub mod image;
+#[cfg_attr(windows, path = "win/imaging.rs")]
 pub mod imaging;
 pub mod media;
 pub mod metadata;
+pub mod ocr_layout;
+#[cfg_attr(windows, path = "win/ocr.rs")]
 pub mod ocr;
+#[cfg_attr(windows, path = "win/pdf.rs")]
 pub mod pdf;
+#[cfg_attr(windows, path = "win/photo.rs")]
 pub mod photo;
 pub mod plan;
 pub mod probe;
@@ -23,6 +30,8 @@ pub mod process;
 pub mod run;
 pub mod sheet;
 pub mod subtitle;
+#[cfg(windows)]
+pub mod win;
 
 pub use env::Env;
 pub use plan::{detect_format, plan, Job, Operation, Plan};

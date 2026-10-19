@@ -82,6 +82,7 @@ mod tests {
     use super::*;
 
     #[test]
+    #[cfg(target_os = "macos")]
     fn textutil_reads_our_documents() {
         let dir = tempfile::tempdir().unwrap();
         let out = dir.path().join("t.docx");

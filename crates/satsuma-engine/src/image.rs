@@ -1,13 +1,15 @@
-//! Image conversions and tools: macOS `sips` (ImageIO), with ffmpeg for WebP, PNG
-//! quantisation and collages.
+//! Image conversions and tools: macOS `sips` (ImageIO; emulated on Windows by
+//! [`crate::win::sips`]), with ffmpeg for WebP, PNG quantisation and collages.
 
 use crate::env::Env;
 use crate::media::Ff;
+#[cfg_attr(windows, allow(unused_imports))]
 use crate::process::{run, Cancel};
 use crate::{Error, Result};
 use satsuma_core::settings::Strength;
 use satsuma_core::Format::{self, *};
 use std::path::{Path, PathBuf};
+#[cfg_attr(windows, allow(unused_imports))]
 use std::process::Command;
 
 /// `sips` format name for an output format.
@@ -37,7 +39,14 @@ pub fn sips(
 ) -> Result<()> {
     let name = sips_format(target)
         .ok_or_else(|| Error::msg(format!("Cannot write {} with sips.", target.label())))?;
-    let mut cmd = Command::new(&env.sips);
+    #[cfg(windows)]
+    {
+        let _ = name;
+        crate::win::sips::convert(env, input, out, target, format_options, max_edge, cancel)?;
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let mut cmd = Command::new(&env.sips);
     cmd.args(["-s", "format", name]);
     if let Some(o) = format_options {
         cmd.args(["-s", "formatOptions", o]);
@@ -47,6 +56,7 @@ pub fn sips(
     }
     cmd.arg(input).arg("--out").arg(out);
     run(&mut cmd, cancel, &mut |_| {})?;
+    }
     if !out.exists() || std::fs::metadata(out)?.len() == 0 {
         return Err(Error::msg(format!(
             "Could not read the image {}.",

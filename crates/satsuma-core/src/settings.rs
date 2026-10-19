@@ -18,13 +18,30 @@ pub enum Strength {
 pub enum TerminalApp {
     Terminal,
     ITerm2,
+    /// Windows Terminal (`wt.exe`).
+    WindowsTerminal,
+    PowerShell,
+    /// Command Prompt (`cmd.exe`).
+    Cmd,
 }
 
 impl TerminalApp {
+    /// The choices offered on this platform, default first.
+    pub fn choices() -> &'static [TerminalApp] {
+        if cfg!(windows) {
+            &[TerminalApp::WindowsTerminal, TerminalApp::PowerShell, TerminalApp::Cmd]
+        } else {
+            &[TerminalApp::Terminal, TerminalApp::ITerm2]
+        }
+    }
+
     pub fn bundle_id(self) -> &'static str {
         match self {
             TerminalApp::Terminal => "com.apple.Terminal",
             TerminalApp::ITerm2 => "com.googlecode.iterm2",
+            TerminalApp::WindowsTerminal => "wt.exe",
+            TerminalApp::PowerShell => "powershell.exe",
+            TerminalApp::Cmd => "cmd.exe",
         }
     }
 
@@ -32,6 +49,9 @@ impl TerminalApp {
         match self {
             TerminalApp::Terminal => "Terminal",
             TerminalApp::ITerm2 => "iTerm2",
+            TerminalApp::WindowsTerminal => "Windows Terminal",
+            TerminalApp::PowerShell => "PowerShell",
+            TerminalApp::Cmd => "Command Prompt",
         }
     }
 }
@@ -71,7 +91,7 @@ impl Default for Settings {
             video_compression: Strength::Balanced,
             audio_compression: Strength::Balanced,
             split_video_parts: 2,
-            terminal: TerminalApp::Terminal,
+            terminal: TerminalApp::choices()[0],
             float_behavior: FloatBehavior::AddToExisting,
             has_completed_welcome: false,
         }
@@ -79,7 +99,15 @@ impl Default for Settings {
 }
 
 impl Settings {
+    /// `%APPDATA%\Satsuma\settings.json`
+    #[cfg(windows)]
+    pub fn default_path() -> PathBuf {
+        let base = std::env::var_os("APPDATA").map(PathBuf::from).unwrap_or_else(std::env::temp_dir);
+        base.join("Satsuma").join("settings.json")
+    }
+
     /// `~/Library/Application Support/Satsuma/settings.json`
+    #[cfg(not(windows))]
     pub fn default_path() -> PathBuf {
         let home = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_else(|| "/tmp".into());
         home.join("Library/Application Support/Satsuma/settings.json")
