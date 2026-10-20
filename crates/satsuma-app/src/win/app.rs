@@ -174,6 +174,10 @@ struct Controller {
     tick_ms: u32,
     /// A downloaded update waiting for a restart (its version).
     update_ready: Option<String>,
+    /// Since when Satsuma has been idle with an update waiting (it then restarts itself).
+    idle_since: Option<Instant>,
+    /// The automatic install failed once; leave it to the menu or the next start.
+    auto_update_failed: bool,
 }
 
 thread_local! {
@@ -290,6 +294,7 @@ impl Controller {
     // ------------------------------------------------------------ the 60 Hz tick
 
     fn tick(&mut self) {
+        self.maybe_restart_to_update();
         let ready = super::update::ready();
         if ready != self.update_ready {
             debug!("update ready: {ready:?}");
@@ -700,6 +705,47 @@ impl Controller {
     }
 }
 
+impl Controller {
+    /// Nothing in progress and no window of Satsuma's open: a restart loses nothing.
+    fn idle_for_update(&self) -> bool {
+        matches!(self.drag, Drag::Idle)
+            && !system::left_mouse_down()
+            && !self.wheel.is_visible()
+            && self.keyboard_files.is_none()
+            && self.job.is_none()
+            && self.queue.is_empty()
+            && self.editors.is_empty()
+            && self.floats.is_empty()
+            && self.hud_hide_at.is_none()
+            && unsafe { FindWindowW(None, &HSTRING::from(super::settings_window::TITLE)) }.map_or(true, |h| h.is_invalid())
+    }
+
+    /// A downloaded update installs itself once Satsuma has been idle for a moment:
+    /// it quits and comes back on the new version.
+    fn maybe_restart_to_update(&mut self) {
+        if self.update_ready.is_none() || self.auto_update_failed || !self.idle_for_update() {
+            self.idle_since = None;
+            return;
+        }
+        let since = *self.idle_since.get_or_insert_with(Instant::now);
+        if since.elapsed() < Duration::from_secs(3) {
+            return;
+        }
+        match super::update::install() {
+            Ok(version) => {
+                debug!("installed {version} while idle; restarting");
+                if super::update::relaunch() {
+                    unsafe { PostQuitMessage(0) };
+                }
+            }
+            Err(e) => {
+                debug!("automatic update failed: {e}");
+                self.auto_update_failed = true;
+            }
+        }
+    }
+}
+
 fn summarize(title: &str, report: &BatchReport, skipped: &[(PathBuf, String)]) -> (HudModel, Duration) {
     let saved = report.outputs.len();
     if report.cancelled {
@@ -944,6 +990,8 @@ pub fn run() {
         exit_when_idle: false,
         tick_ms: FAST_TICK_MS,
         update_ready: None,
+        idle_since: None,
+        auto_update_failed: false,
     };
     #[cfg(debug_assertions)]
     if let Some(event) = selftest_drop() {
