@@ -204,7 +204,8 @@ pub fn selftest_drag(args: &[String]) -> i32 {
         }
         std::thread::sleep(Duration::from_millis(500));
         glide(anchor, target, 10);
-        std::thread::sleep(Duration::from_millis(450));
+        // With a screenshot, hover long enough for the size preview.
+        std::thread::sleep(Duration::from_millis(if shot.is_some() { 2500 } else { 450 }));
         if let Some(path) = &shot {
             let half = (150.0 * scale) as i32;
             if let Err(e) = screenshot(anchor.0 - half, anchor.1 - half, half * 2, half * 2, path) {

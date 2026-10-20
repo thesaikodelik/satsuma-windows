@@ -178,6 +178,8 @@ struct Controller {
     wheel_hide_at: Option<Instant>,
     floats: Vec<FloatWindow>,
     editors: Vec<EditorWindow>,
+    /// Output-size previews for the open wheel.
+    estimates: Option<super::estimates::Session>,
     job: Option<RunningJob>,
     queue: Vec<PendingJob>,
     deferred: Vec<Deferred>,
@@ -262,6 +264,32 @@ impl Controller {
             feedback: self.settings.feedback,
             combos: self.settings.wheels,
             hub: satsuma_core::wheel::hub_caption(files.len(), bytes),
+            estimates: Default::default(),
+            estimating: false,
+        }
+    }
+
+    /// Starts working out output sizes for the wheel's petals.
+    fn start_estimates(&mut self, files: &[PathBuf], items: &[WheelItem]) {
+        let previewable = items.iter().any(|i| super::estimates::operation(i).is_some());
+        self.wheel.set_estimating(previewable);
+        self.estimates = None;
+        if previewable {
+            let formats: Vec<_> = files.iter().map(|p| detect_format(p)).collect();
+            let ahead = satsuma_engine::estimate::is_cheap(files, &formats);
+            self.estimates = Some(super::estimates::Session::start(self.env.clone(), self.settings.clone(), files.to_vec(), items.to_vec(), ahead));
+        }
+    }
+
+    fn poll_estimates(&mut self) {
+        if self.estimates.is_some() && !self.wheel.is_open() {
+            self.estimates = None;
+        }
+        let selected = self.wheel.selected_item();
+        let Some(session) = self.estimates.as_mut() else { return };
+        session.prioritize(selected);
+        for (item, estimate) in session.poll() {
+            self.wheel.set_estimate(item, estimate);
         }
     }
 
@@ -273,6 +301,7 @@ impl Controller {
             self.handle(event);
         }
         self.poll_job();
+        self.poll_estimates();
         if self.wheel_hide_at.is_some_and(|t| Instant::now() >= t) {
             self.wheel_hide_at = None;
             self.wheel.hide();
@@ -367,7 +396,8 @@ impl Controller {
                     let files = files.clone();
                     *mode = m;
                     let items = self.items_for(m, &files);
-                    self.wheel.switch(m, items);
+                    self.wheel.switch(m, items.clone());
+                    self.start_estimates(&files, &items);
                 }
             }
             Drag::Rejected => {}
@@ -380,8 +410,9 @@ impl Controller {
             UiEvent::ProbeConfirmed { files } => {
                 if let Drag::Probing { mode, .. } = self.drag {
                     let items = self.items_for(mode, &files);
-                    let model = self.model(mode, items, false, &files);
+                    let model = self.model(mode, items.clone(), false, &files);
                     self.wheel.confirm(model);
+                    self.start_estimates(&files, &items);
                     self.drag = Drag::Open { mode, files };
                 }
             }
@@ -412,7 +443,8 @@ impl Controller {
             UiEvent::WheelSwitch(mode) => {
                 if let Some(files) = self.keyboard_files.clone() {
                     let items = self.items_for(mode, &files);
-                    self.wheel.switch(mode, items);
+                    self.wheel.switch(mode, items.clone());
+                    self.start_estimates(&files, &items);
                 }
             }
             UiEvent::HudClose => match &self.job {
@@ -593,11 +625,12 @@ impl Controller {
         let has_conversions = !self.items_for(WheelMode::Conversions, &files).is_empty();
         let mode = initial_keyboard_mode(has_conversions);
         let items = self.items_for(mode, &files);
-        let model = self.model(mode, items, true, &files);
+        let model = self.model(mode, items.clone(), true, &files);
         let (x, y) = system::cursor_pos();
         let work = system::work_area_at(x, y);
-        self.keyboard_files = Some(files);
         self.wheel.show(model, ((work.left + work.right) / 2, (work.top + work.bottom) / 2));
+        self.start_estimates(&files, &items);
+        self.keyboard_files = Some(files);
     }
 
     fn command(&mut self, id: u32) {
@@ -912,6 +945,7 @@ pub fn run() {
         wheel_hide_at: None,
         floats: Vec::new(),
         editors: Vec::new(),
+        estimates: None,
         job: None,
         queue: Vec::new(),
         deferred: Vec::new(),

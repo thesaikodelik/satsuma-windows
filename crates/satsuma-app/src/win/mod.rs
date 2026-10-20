@@ -30,6 +30,7 @@ mod app;
 mod dragsource;
 mod droptarget;
 mod editor;
+mod estimates;
 mod events;
 mod float;
 mod gfx;

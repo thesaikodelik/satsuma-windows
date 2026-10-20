@@ -16,6 +16,7 @@ use satsuma_core::geometry::{WheelGeometry, WHEEL_VIEW_SIZE};
 use satsuma_core::wheel::{empty_message, navigate, NavKey};
 use satsuma_core::{WheelCombos, WheelItem, WheelMode};
 use std::cell::RefCell;
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::rc::Rc;
 use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
@@ -34,11 +35,25 @@ pub struct WheelModel {
     pub combos: WheelCombos,
     /// Centre text when nothing is highlighted, e.g. ["1.2 MB"].
     pub hub: Vec<String>,
+    /// Output size per petal ("1.4 MB", "≈ 12 MB"); `None` when it can't be previewed.
+    pub estimates: HashMap<WheelItem, Option<String>>,
+    /// Sizes are being worked out, so a petal without one shows "…".
+    pub estimating: bool,
 }
 
 impl WheelModel {
     pub fn new(mode: WheelMode, items: Vec<WheelItem>) -> WheelModel {
-        WheelModel { mode, items, selected: None, keyboard: false, feedback: false, combos: WheelCombos::default(), hub: Vec::new() }
+        WheelModel {
+            mode,
+            items,
+            selected: None,
+            keyboard: false,
+            feedback: false,
+            combos: WheelCombos::default(),
+            hub: Vec::new(),
+            estimates: HashMap::new(),
+            estimating: false,
+        }
     }
 }
 
@@ -105,7 +120,19 @@ pub fn paint(p: &Painter, m: &WheelModel, pal: &Palette) {
         p.fill_circle(c, c, r, pal.control.alpha(if selected.is_some() { 1.0 } else { 0.85 }));
     }
     if let Some(item) = selected {
-        p.text_centered(&item.title(), c, c, 9.5, Weight::Bold, ACCENT);
+        // The result's size, with the petal's name under it.
+        let size = match m.estimates.get(item) {
+            Some(Some(text)) => Some(text.as_str()),
+            None if m.estimating => Some("…"),
+            _ => None,
+        };
+        match size {
+            Some(text) => {
+                p.text_centered(text, c, c - 5.0, if text.chars().count() > 8 { 10.0 } else { 11.5 }, Weight::Bold, ACCENT);
+                p.text_centered(&item.title(), c, c + 10.0, 7.5, Weight::Semibold, pal.secondary);
+            }
+            None => p.text_centered(&item.title(), c, c, 9.5, Weight::Bold, ACCENT),
+        }
     } else if !m.hub.is_empty() {
         let n = m.hub.len() as f32;
         for (k, line) in m.hub.iter().enumerate() {
@@ -431,6 +458,30 @@ impl WheelWindow {
         unsafe {
             let _ = ShowWindow(self.hwnd, SW_HIDE);
         }
+    }
+
+    /// Records a petal's output size (or that it has none) and redraws if it is showing.
+    pub fn set_estimate(&self, item: WheelItem, text: Option<String>) {
+        let mut s = self.state.borrow_mut();
+        s.model.estimates.insert(item, text);
+        if s.visible && !s.probing && s.model.selected.and_then(|i| s.model.items.get(i)) == Some(&item) {
+            render(self.hwnd, &s);
+        }
+    }
+
+    pub fn set_estimating(&self, on: bool) {
+        let mut s = self.state.borrow_mut();
+        s.model.estimating = on;
+        s.model.estimates.clear();
+    }
+
+    pub fn selected_item(&self) -> Option<WheelItem> {
+        let s = self.state.try_borrow().ok()?;
+        s.model.selected.and_then(|i| s.model.items.get(i).copied())
+    }
+
+    pub fn is_open(&self) -> bool {
+        self.state.try_borrow().map(|s| s.visible && !s.probing).unwrap_or(true)
     }
 
     pub fn anchor(&self) -> Point {

@@ -10,6 +10,7 @@ pub mod capability;
 pub mod doc;
 pub mod docx;
 pub mod env;
+pub mod estimate;
 pub mod epub;
 pub mod html;
 pub mod image;
