@@ -25,7 +25,7 @@ pub const TITLE: &str = "Satsuma Settings";
 
 /// Content size in DIPs.
 const W: f32 = 460.0;
-const H: f32 = 470.0;
+const H: f32 = 520.0;
 const PILL_TIMER: usize = 3;
 
 /// Wheel key choices (the Windows key is left out: tapping it opens Start).
@@ -38,7 +38,11 @@ pub const COMBO_CHOICES: [Mods; 6] = [
     Mods::CONTROL.union(Mods::OPTION),
 ];
 const IMAGE_SIZES: [u32; 4] = [0, 4096, 2048, 1024];
-const TABS: [&str; 4] = ["Appearance", "Wheel", "Files", "General"];
+const TABS: [&str; 4] = ["General", "Appearance", "Shortcuts", "Files"];
+const GENERAL: usize = 0;
+const APPEARANCE: usize = 1;
+const SHORTCUTS: usize = 2;
+const FILES: usize = 3;
 
 type R = (f32, f32, f32, f32);
 
@@ -97,6 +101,8 @@ const ROW_LABEL_X: f32 = 20.0;
 const CONTROL_W: f32 = 220.0;
 const CONTROL_X: f32 = W - 20.0 - CONTROL_W;
 const PREVIEW_Y: f32 = 54.0;
+/// The sound switch's row on the Shortcuts tab.
+const SOUND_Y: f32 = 418.0;
 
 fn row(y: f32) -> R {
     (CONTROL_X, y, CONTROL_W, 30.0)
@@ -124,8 +130,8 @@ impl State {
 
     fn groups(&self) -> Vec<Group> {
         match self.tab {
-            0 => vec![Group::Tabs, Group::Theme],
-            2 => vec![Group::Tabs, Group::Strength(0), Group::Strength(1), Group::Strength(2)],
+            APPEARANCE => vec![Group::Tabs, Group::Theme],
+            FILES => vec![Group::Tabs, Group::Strength(0), Group::Strength(1), Group::Strength(2)],
             _ => vec![Group::Tabs],
         }
     }
@@ -140,14 +146,14 @@ impl State {
             }
         }
         match self.tab {
-            0 => v.push((Id::Transparency, (CONTROL_X - 30.0, PREVIEW_Y + WHEEL_VIEW_SIZE as f32 + 50.0, CONTROL_W - 20.0, 26.0))),
-            1 => {
+            APPEARANCE => v.push((Id::Transparency, (CONTROL_X - 30.0, PREVIEW_Y + WHEEL_VIEW_SIZE as f32 + 50.0, CONTROL_W - 20.0, 26.0))),
+            SHORTCUTS => {
                 for k in 0..3 {
                     v.push((Id::Picker(Picker::Key(k)), row(84.0 + k as f32 * 42.0)));
                 }
-                v.push((Id::Toggle(Toggle::Sound), (W - 20.0 - 44.0, 268.0, 44.0, 24.0)));
+                v.push((Id::Toggle(Toggle::Sound), (W - 20.0 - 44.0, SOUND_Y + 3.0, 44.0, 24.0)));
             }
-            2 => {
+            FILES => {
                 v.push((Id::Picker(Picker::ImageSize), row(222.0)));
                 v.push((Id::Picker(Picker::Split), row(298.0)));
             }
@@ -290,7 +296,7 @@ impl State {
             self.paint_segments(p, pal, g);
         }
         match self.tab {
-            0 => {
+            APPEARANCE => {
                 let wheel_pal = Palette::for_appearance(self.settings.appearance, pal.dark);
                 let x = (W - WHEEL_VIEW_SIZE as f32) / 2.0;
                 p.translated(x, PREVIEW_Y, &|p| wheel::paint(p, &self.preview, &wheel_pal, None, self.scale));
@@ -301,17 +307,19 @@ impl State {
                 p.text(&format!("{} %", self.settings.transparency), (W - 62.0, y + 48.0, 44.0, 30.0), 12.0, Weight::Regular, pal.secondary, Align::Leading, false);
                 note("Hover the sample's petals to try the highlight.", H - 46.0, 30.0);
             }
-            1 => {
+            SHORTCUTS => {
                 header("WHEEL KEYS", 56.0);
                 for (k, name) in ["Convert", "Tools", "Actions"].iter().enumerate() {
                     label(name, 84.0 + k as f32 * 42.0);
                     self.paint_picker(p, pal, Picker::Key(k));
                 }
-                note("While dragging files, tap a key to open its wheel. Tapping another key switches wheels.", 210.0, 36.0);
-                label("Sound when a petal lights up", 265.0);
+                header("HOW IT WORKS", 214.0);
+                self.paint_tutorial(p, pal, 240.0);
+                note("Tapping another key switches wheels. Drop in the middle to cancel.", 384.0, 20.0);
+                label("Sound when a petal lights up", SOUND_Y);
                 self.paint_toggle(p, pal, Toggle::Sound, self.settings.feedback);
             }
-            2 => {
+            FILES => {
                 header("COMPRESSION", 64.0);
                 for (k, name) in ["Images", "Video", "Audio"].iter().enumerate() {
                     label(name, 96.0 + k as f32 * 42.0);
@@ -338,6 +346,69 @@ impl State {
             let radius = if pal.glass { r.3 / 2.0 } else { 6.0 };
             p.fill_round_rect(r.0, r.1, r.2, r.3, radius, if pressed { Rgba(0.85, 0.36, 0.07, 1.0) } else { ACCENT });
             p.text("Done", r, 12.5, Weight::Semibold, Rgba::WHITE, Align::Center, false);
+        }
+    }
+
+    /// Three line drawings: drag files, tap the key once, drop on a petal.
+    fn paint_tutorial(&self, p: &Painter, pal: &Palette, top: f32) {
+        let ink = pal.secondary;
+        let faint = pal.tertiary;
+        let panel_w = (W - 40.0 - 2.0 * 12.0) / 3.0;
+        let key = self.settings.wheels.conversions.label();
+        let captions = ["Drag files".to_string(), format!("Tap {key} once"), "Drop on a petal".to_string()];
+        for (i, caption) in captions.iter().enumerate() {
+            let x = 20.0 + i as f32 * (panel_w + 12.0);
+            let (cx, cy) = (x + panel_w / 2.0, top + 54.0);
+            // A soft card behind each step.
+            p.fill_round_rect(x, top, panel_w, 136.0, 14.0, if pal.glass { pal.control } else { pal.separator.alpha(0.35) });
+            if pal.glass {
+                p.stroke_round_rect(x + 0.5, top + 0.5, panel_w - 1.0, 135.0, 13.5, pal.rim, 1.0);
+            }
+            match i {
+                0 => {
+                    // A file being carried off by the pointer, with a motion trail.
+                    draw_document(p, cx - 26.0, cy - 30.0, 34.0, 44.0, ink);
+                    for k in 0..4 {
+                        p.fill_circle(cx - 4.0 + k as f32 * 7.0, cy + 18.0 + k as f32 * 3.0, 1.4, faint);
+                    }
+                    draw_document(p, cx + 6.0, cy - 6.0, 26.0, 33.0, ACCENT.alpha(0.9));
+                    draw_cursor(p, cx + 22.0, cy + 18.0, ink, pal);
+                }
+                1 => {
+                    // A key pressed once.
+                    let (kw, kh) = (if key.len() > 5 { 82.0 } else { 64.0 }, 40.0);
+                    p.stroke_round_rect(cx - kw / 2.0, cy - kh / 2.0 + 6.0, kw, kh, 9.0, faint, 1.2);
+                    p.stroke_round_rect(cx - kw / 2.0, cy - kh / 2.0, kw, kh, 9.0, ink, 1.6);
+                    p.text(&key, (cx - kw / 2.0, cy - kh / 2.0, kw, kh), 12.0, Weight::Semibold, pal.label, Align::Center, false);
+                    // Tap marks above the key.
+                    for (dx, len) in [(-16.0f32, 7.0f32), (0.0, 9.0), (16.0, 7.0)] {
+                        let (x0, y0) = (cx + dx, cy - kh / 2.0 - 8.0);
+                        let ang = dx.atan2(28.0);
+                        p.line(x0 + ang.sin() * 2.0, y0, x0 + ang.sin() * (2.0 + len), y0 - len * ang.cos(), ACCENT, 1.8);
+                    }
+                    p.text("× 1", (cx - 30.0, cy + kh / 2.0 + 4.0, 60.0, 18.0), 11.0, Weight::Semibold, ACCENT, Align::Center, false);
+                }
+                _ => {
+                    // A small wheel with one petal lit, and the pointer on it.
+                    let (ro, ri) = (34.0, 13.0);
+                    p.stroke_circle(cx, cy, ro, ink, 1.4);
+                    p.stroke_circle(cx, cy, ri, ink, 1.2);
+                    for k in 0..6 {
+                        let a = std::f32::consts::PI / 2.0 + std::f32::consts::PI / 6.0 + k as f32 * std::f32::consts::PI / 3.0;
+                        p.line(cx + ri * a.cos(), cy - ri * a.sin(), cx + ro * a.cos(), cy - ro * a.sin(), ink, 1.2);
+                    }
+                    // The lit petal (top right).
+                    let g = satsuma_core::geometry::WheelGeometry { inner: ri as f64 + 1.5, outer: ro as f64 - 1.5, gap: 2.0, outer_corner: 4.0, inner_corner: 2.0, backdrop: ro as f64 };
+                    if let Some(geo) = p.path(&g.petal_path(1, 6), cx, cy) {
+                        p.fill_geometry(&geo, ACCENT.alpha(0.9));
+                    }
+                    draw_cursor(p, cx + 16.0, cy - 14.0, ink, pal);
+                }
+            }
+            // The step number and its caption.
+            p.fill_circle(x + 16.0, top + 16.0, 9.0, ACCENT);
+            p.text(&(i + 1).to_string(), (x + 7.0, top + 7.0, 18.0, 18.0), 10.5, Weight::Bold, Rgba::WHITE, Align::Center, false);
+            p.text(caption, (x + 4.0, top + 104.0, panel_w - 8.0, 22.0), 11.5, Weight::Semibold, pal.label, Align::Center, false);
         }
     }
 
@@ -430,7 +501,7 @@ impl State {
             self.set_transparency_from_x(x);
             return true;
         }
-        if self.tab == 0 {
+        if self.tab == APPEARANCE {
             let half = (WHEEL_VIEW_SIZE / 2.0) as f32;
             let (dx, dy) = (x - (W - WHEEL_VIEW_SIZE as f32) / 2.0 - half, y - PREVIEW_Y - half);
             let hit = WheelGeometry::default().hit_test(dx as f64, -dy as f64, self.preview.items.len());
@@ -441,6 +512,40 @@ impl State {
             }
         }
         false
+    }
+}
+
+/// A page with a folded corner, outlined.
+fn draw_document(p: &Painter, x: f32, y: f32, w: f32, h: f32, ink: Rgba) {
+    let fold = w * 0.32;
+    p.line(x, y, x + w - fold, y, ink, 1.5);
+    p.line(x + w - fold, y, x + w, y + fold, ink, 1.5);
+    p.line(x + w, y + fold, x + w, y + h, ink, 1.5);
+    p.line(x + w, y + h, x, y + h, ink, 1.5);
+    p.line(x, y + h, x, y, ink, 1.5);
+    p.line(x + w - fold, y, x + w - fold, y + fold, ink, 1.2);
+    p.line(x + w - fold, y + fold, x + w, y + fold, ink, 1.2);
+    for k in 0..3 {
+        let ly = y + fold + 8.0 + k as f32 * 6.0;
+        if ly < y + h - 4.0 {
+            p.line(x + 6.0, ly, x + w - 6.0 - if k == 2 { w * 0.25 } else { 0.0 }, ly, ink.alpha(0.6), 1.1);
+        }
+    }
+}
+
+/// The arrow pointer with its tip at `(x, y)`.
+fn draw_cursor(p: &Painter, x: f32, y: f32, ink: Rgba, pal: &Palette) {
+    use satsuma_core::geometry::{PathCmd, Point};
+    // Designed y-down; the painter's paths are y-up around (x, y).
+    let pts = [(0.0, 0.0), (0.0, 17.0), (4.2, 13.2), (7.2, 19.5), (10.0, 18.3), (7.1, 12.2), (12.5, 12.2)];
+    let mut cmds: Vec<PathCmd> = pts.iter().enumerate().map(|(i, (px, py))| {
+        let pt = Point::new(*px, -*py);
+        if i == 0 { PathCmd::MoveTo(pt) } else { PathCmd::LineTo(pt) }
+    }).collect();
+    cmds.push(PathCmd::Close);
+    if let Some(geo) = p.path(&cmds, x, y) {
+        p.fill_geometry(&geo, if pal.dark { Rgba::hex(0x1A1C22, 1.0) } else { Rgba::WHITE });
+        p.stroke_geometry(&geo, ink, 1.3);
     }
 }
 
@@ -636,7 +741,7 @@ pub fn open(settings: &Settings) {
     let state = Rc::new(RefCell::new(State {
         settings: settings.clone(),
         login: system::launch_at_login(),
-        tab: 0,
+        tab: GENERAL,
         pill: None,
         pressed: None,
         dragging: false,

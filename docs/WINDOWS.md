@@ -11,9 +11,9 @@ audio and video.
 
 - The app lives in the **notification area** (the citrus icon at the right end of the taskbar).
   Click it for the menu: Convert Files…, Settings…, How to Use and Quit. Every preference is in
-  **Settings** (Appearance, Wheel, Files, General); changes apply and save as you make them.
+  **Settings** (General, Appearance, Shortcuts, Files); changes apply and save as you make them.
 - While dragging files, tap **Shift** to convert, **Ctrl** for tools and **Alt** for file actions.
-  Change them in *Settings › Wheel*. The Windows key isn't offered, because tapping it opens Start.
+  Change them in *Settings › Shortcuts*. The Windows key isn't offered, because tapping it opens Start.
 - *Settings › Appearance*: **Liquid** (blurred glass after 30nama's design, with a liquid highlight
   that flows between petals) or **Solid**, and a **Transparency** slider for both.
 - **AirDrop** becomes **Share**, the Windows share sheet (Nearby Sharing, Mail, Phone Link and so on).
