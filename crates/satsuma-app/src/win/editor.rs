@@ -450,7 +450,7 @@ impl Editor {
 
     /// Whether the pill is still flowing (the window keeps redrawing while it is).
     fn pill_moving(&self) -> bool {
-        let preview = matches!(&self.kind, Kind::Settings(st) if st.preview.motion.is_some_and(|(_, t)| t.elapsed().as_secs_f32() < PILL_SECONDS));
+        let preview = matches!(&self.kind, Kind::Settings(st) if st.preview.liquid.moving());
         preview || self.pill.is_some_and(|m| m.elapsed() < PILL_SECONDS)
     }
 
@@ -754,8 +754,8 @@ impl Editor {
             let (dx, dy) = (x - PREVIEW_AT.0 - half, y - PREVIEW_AT.1 - half);
             let hit = WheelGeometry::default().hit_test(dx as f64, -dy as f64, st.preview.items.len());
             if hit.is_some() && hit != st.preview.selected {
-                st.preview.motion = st.preview.selected.map(|old| (old, std::time::Instant::now()));
                 st.preview.selected = hit;
+                st.preview.aim_liquid();
                 return true;
             }
             return false;
@@ -882,7 +882,7 @@ impl Handler for Messages {
                     refresh(hwnd);
                 }
                 if e.pill_moving() {
-                    unsafe { SetTimer(Some(hwnd), PILL_TIMER, 15, None) };
+                    unsafe { SetTimer(Some(hwnd), PILL_TIMER, 10, None) };
                 }
                 Some(LRESULT(0))
             }
@@ -893,7 +893,7 @@ impl Handler for Messages {
                     refresh(hwnd);
                 }
                 if e.pill_moving() {
-                    unsafe { SetTimer(Some(hwnd), PILL_TIMER, 15, None) };
+                    unsafe { SetTimer(Some(hwnd), PILL_TIMER, 10, None) };
                 }
                 Some(LRESULT(0))
             }
@@ -1031,6 +1031,11 @@ impl Handler for Messages {
                 Some(LRESULT(0))
             }
             WM_TIMER if wparam.0 == PILL_TIMER => {
+                if let Ok(mut e) = self.editor.try_borrow_mut() {
+                    if let Kind::Settings(st) = &mut e.kind {
+                        st.preview.liquid.step(std::time::Instant::now());
+                    }
+                }
                 let moving = self.editor.try_borrow().map(|e| e.pill_moving()).unwrap_or(true);
                 if !moving {
                     unsafe {
@@ -1153,6 +1158,7 @@ impl EditorWindow {
             .collect();
         let mut preview = WheelModel::new(WheelMode::Conversions, items);
         preview.selected = Some(1);
+        preview.settle_liquid();
         preview.hub = vec!["2.4 MB".into()];
         preview.estimates.insert(WheelItem::Convert(Format::Webp), Some("1.1 MB".into()));
         let kind = Kind::Settings(SettingsState { appearance, transparency, preview });

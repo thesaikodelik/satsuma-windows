@@ -7,6 +7,7 @@
 //! delivers a drag carrying files to it, the wheel turns visible; otherwise it disappears.
 
 use super::droptarget::{self, DropHandler};
+use super::liquid::{bounds, sector_sdf, Liquid, Sector};
 use super::events::{self, Point, UiEvent};
 use super::gfx::{Align, Painter, Rgba, Surface, Weight};
 use super::theme::{glyph, Palette, ACCENT};
@@ -41,10 +42,8 @@ pub struct WheelModel {
     pub estimating: bool,
     /// Seconds into the dots' animation.
     pub phase: f32,
-    /// The highlight flowing here from another petal, and since when (30nama's liquid pill).
-    pub motion: Option<(usize, std::time::Instant)>,
-    /// Offscreen renders show one moment of the flow (seconds).
-    pub frozen: Option<f32>,
+    /// The liquid highlight (physics), chasing the selected petal.
+    pub liquid: Liquid,
 }
 
 impl WheelModel {
@@ -60,8 +59,7 @@ impl WheelModel {
             estimates: HashMap::new(),
             estimating: false,
             phase: 0.0,
-            motion: None,
-            frozen: None,
+            liquid: Liquid::default(),
         }
     }
 }
@@ -90,17 +88,8 @@ fn size_px(scale: f32) -> i32 {
     (WHEEL_VIEW_SIZE as f32 * scale).ceil() as i32
 }
 
-/// A ring sector: centre angle (radians, y up), half its angle, mid radius and half its
-/// thickness (DIPs).
-#[derive(Clone, Copy)]
-struct Sector {
-    angle: f32,
-    half: f32,
-    mid: f32,
-    thick: f32,
-}
-
-fn petal_sector(i: usize, n: usize) -> Sector {
+/// The ring sector a petal occupies (what the liquid chases).
+pub fn petal_sector(i: usize, n: usize) -> Sector {
     let g = WheelGeometry::default();
     let mid = ((g.inner + g.outer) / 2.0) as f32;
     let thick = ((g.outer - g.inner) / 2.0) as f32;
@@ -108,50 +97,21 @@ fn petal_sector(i: usize, n: usize) -> Sector {
     Sector { angle: WheelGeometry::petal_angle(i, n) as f32, half, mid, thick }
 }
 
-fn wrap(a: f32) -> f32 {
-    let tau = std::f32::consts::TAU;
-    let mut a = a.rem_euclid(tau);
-    if a > std::f32::consts::PI {
-        a -= tau;
+impl WheelModel {
+    /// Points the liquid at the selected petal (or lets it fade).
+    pub fn aim_liquid(&mut self) {
+        let n = self.items.len();
+        self.liquid.set_target(self.selected.filter(|i| *i < n).map(|i| petal_sector(i, n)));
     }
-    a
-}
 
-/// Signed distance to a sector with rounded corners, measured along arcs and radii.
-fn sector_sdf(x: f32, y_up: f32, s: Sector) -> f32 {
-    let r = (x * x + y_up * y_up).sqrt();
-    let u = wrap(y_up.atan2(x) - s.angle).abs() * r;
-    let corner = 11f32.min(s.half * s.mid * 0.5).min(s.thick * 0.6).max(0.5);
-    let qx = u - (s.half * r - corner);
-    let qy = (r - s.mid).abs() - (s.thick - corner);
-    (qx.max(0.0).powi(2) + qy.max(0.0).powi(2)).sqrt() + qx.max(qy).min(0.0) - corner
-}
-
-/// The highlight mid-flow from petal `from` to `to` (30nama's `Goo`, around the ring): the
-/// leading edge runs ahead, the trailing edge follows, the body thins halfway, and a drop
-/// shrinks away on the old petal.
-fn sector_goo(from: Sector, to: Sector, progress: f32) -> Vec<Sector> {
-    let p = progress.max(0.0);
-    let settled = p.min(1.0);
-    let lead = 1.0 - (1.0 - settled).powi(3) + (p - settled);
-    let trail = settled * settled;
-    let target = from.angle + wrap(to.angle - from.angle);
-    let forward = target > from.angle;
-    let (f_lo, f_hi, t_lo, t_hi) = (from.angle - from.half, from.angle + from.half, target - to.half, target + to.half);
-    let lo = f_lo + (t_lo - f_lo) * if forward { trail } else { lead };
-    let hi = f_hi + (t_hi - f_hi) * if forward { lead } else { trail };
-    let thick = to.thick * (1.0 - 0.32 * (std::f32::consts::PI * settled).sin());
-    let mut pieces = vec![Sector { angle: (lo + hi) / 2.0, half: ((hi - lo) / 2.0).max(0.01), mid: to.mid, thick }];
-    let left = (1.0 - settled).powf(1.6);
-    if left > 0.02 {
-        pieces.push(Sector { angle: from.angle, half: from.half * left, mid: from.mid, thick: from.thick * left });
+    /// Puts the liquid at rest on the selected petal, without motion.
+    pub fn settle_liquid(&mut self) {
+        let n = self.items.len();
+        self.liquid = Liquid::default();
+        if let Some(i) = self.selected.filter(|i| *i < n) {
+            self.liquid.settle_on(petal_sector(i, n));
+        }
     }
-    pieces
-}
-
-/// The highlight is still flowing between petals.
-fn moving(m: &WheelModel) -> bool {
-    m.motion.is_some_and(|(_, t)| t.elapsed().as_secs_f32() < super::editor::PILL_SECONDS)
 }
 
 /// A blurred copy of what is behind the wheel (RGBA, width, height), for Liquid Glass.
@@ -242,22 +202,13 @@ pub fn paint(p: &Painter, m: &WheelModel, pal: &Palette, behind: Option<&Behind>
             }
         }
     }
-    let elapsed = m.motion.map(|(_, t)| m.frozen.unwrap_or_else(|| t.elapsed().as_secs_f32())).unwrap_or(f32::MAX);
-    let selected = m.selected.filter(|s| *s < n);
-    let pieces = match (selected, m.motion) {
-        (Some(sel), Some((from, _))) if from < n && elapsed < super::editor::PILL_SECONDS => {
-            sector_goo(petal_sector(from, n), petal_sector(sel, n), super::editor::spring(elapsed))
-        }
-        (Some(sel), _) => vec![petal_sector(sel, n)],
-        (None, _) => Vec::new(),
-    };
+    let pieces = m.liquid.pieces();
     let liquid = |x: f32, y: f32| pieces.iter().map(|s| sector_sdf(x - c, c - y, *s)).reduce(super::gfx::smooth_union).unwrap_or(f32::MAX);
-    if let Some(sel) = selected {
-        let o = g.outer as f32 + 2.0;
-        let area = (c - o, c - o, o * 2.0, o * 2.0);
+    // Only the box around the liquid is shaded, which keeps every frame cheap.
+    if let Some(area) = bounds(&pieces, c) {
         if pal.glass {
             // The lit glass pill: white body and glare over the pill's height, a bright rim.
-            let (top, bottom) = sector_rows(petal_sector(sel, n), c);
+            let (top, bottom) = pieces.iter().map(|s| sector_rows(*s, c)).fold((f32::MAX, f32::MIN), |a, b| (a.0.min(b.0), a.1.max(b.1)));
             let span = (bottom - top).max(1.0);
             p.sdf_fill_lit(area, scale, &|y| {
                 let v = ((y - top) / span).clamp(0.0, 1.0);
@@ -378,11 +329,8 @@ fn set_selected(hwnd: HWND, s: &mut State, sel: Option<usize>) {
     if s.model.selected == sel {
         return;
     }
-    s.model.motion = match (s.model.selected, sel) {
-        (Some(old), Some(_)) => Some((old, std::time::Instant::now())),
-        _ => None,
-    };
     s.model.selected = sel;
+    s.model.aim_liquid();
     if sel.is_some() && s.model.feedback {
         system::highlight_feedback();
     }
@@ -637,6 +585,7 @@ impl WheelWindow {
             let mut s = self.state.borrow_mut();
             s.probing = false;
             s.model = model;
+            s.model.settle_liquid();
             s.anchor
         };
         self.place(at, false);
@@ -648,6 +597,7 @@ impl WheelWindow {
             let mut s = self.state.borrow_mut();
             s.probing = false;
             s.model = model;
+            s.model.settle_liquid();
         }
         self.place(at, keyboard);
     }
@@ -657,6 +607,7 @@ impl WheelWindow {
         s.model.selected = if s.model.keyboard && !items.is_empty() { Some(0) } else { None };
         s.model.mode = mode;
         s.model.items = items;
+        s.model.settle_liquid();
         if s.visible && !s.probing {
             render(self.hwnd, &s);
         }
@@ -695,12 +646,9 @@ impl WheelWindow {
             && !s.probing
             && s.model.estimating
             && s.model.selected.and_then(|i| s.model.items.get(i)).is_some_and(|item| !s.model.estimates.contains_key(item));
-        let flowing = s.visible && !s.probing && moving(&s.model);
-        if !flowing && s.model.motion.is_some() && !moving(&s.model) {
-            s.model.motion = None;
-            if s.visible && !s.probing {
-                render(self.hwnd, &s);
-            }
+        let flowing = s.visible && !s.probing && s.model.liquid.moving();
+        if flowing {
+            s.model.liquid.step(std::time::Instant::now());
         }
         if waiting || flowing {
             s.model.phase = s.started.elapsed().as_secs_f32();

@@ -36,6 +36,7 @@ mod float;
 mod gfx;
 mod hud;
 mod icon;
+mod liquid;
 mod system;
 #[cfg(debug_assertions)]
 mod selftest;
@@ -61,13 +62,21 @@ pub fn attach_console() {
 pub fn render_wheel(mode: WheelMode, items: Vec<WheelItem>, selected: Option<usize>, dark: bool, out: &Path) -> Result<(), String> {
     let mut model = wheel::WheelModel::new(mode, items);
     model.selected = selected;
+    model.settle_liquid();
     // Debug renders can catch the highlight mid-flow: SATSUMA_FLOW="<from petal>,<seconds>".
     if let Some((from, t)) = std::env::var("SATSUMA_FLOW").ok().and_then(|v| {
         let (a, b) = v.split_once(',')?;
         Some((a.trim().parse::<usize>().ok()?, b.trim().parse::<f32>().ok()?))
     }) {
-        model.motion = Some((from, std::time::Instant::now()));
-        model.frozen = Some(t);
+        let n = model.items.len();
+        model.liquid.settle_on(wheel::petal_sector(from.min(n.saturating_sub(1)), n));
+        model.aim_liquid();
+        let mut done = 0.0;
+        while done < t {
+            let dt = (t - done).min(1.0 / 120.0);
+            model.liquid.advance(dt);
+            done += dt;
+        }
     }
     wheel::render_png(&model, dark, out)
 }

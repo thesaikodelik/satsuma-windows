@@ -268,8 +268,7 @@ impl Controller {
             estimates: Default::default(),
             estimating: false,
             phase: 0.0,
-            motion: None,
-            frozen: None,
+            liquid: Default::default(),
         }
     }
 
@@ -1004,7 +1003,8 @@ pub fn run() {
     CONTROLLER.with(|c| *c.borrow_mut() = Some(controller));
 
     unsafe {
-        SetTimer(Some(main), TIMER_TICK, 16, None);
+        // 10 ms rounds to the system's ~15.6 ms tick: about 64 frames a second.
+        SetTimer(Some(main), TIMER_TICK, 10, None);
         let mut msg = MSG::default();
         while GetMessageW(&mut msg, None, 0, 0).as_bool() {
             if super::editor::translate_dialog_message(&msg) {
