@@ -33,6 +33,12 @@ mod win;
 #[cfg(windows)]
 use win as platform;
 
+/// Windows: Satsuma Setup (the installer and uninstaller).
+#[cfg(windows)]
+pub fn setup_entry() -> i32 {
+    win::setup::run()
+}
+
 /// Starts the app, or runs a command when there are arguments.
 pub fn main_entry() -> i32 {
     // Finder may pass a process serial number argument on older systems.

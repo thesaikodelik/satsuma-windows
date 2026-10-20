@@ -480,6 +480,7 @@ impl Controller {
                 self.editors.retain(|e| e.id() != window);
             }
             UiEvent::EditorApply { op, files, at } => self.enqueue(PendingJob { op, files, at }),
+            UiEvent::RestartToUpdate => self.command(CMD_UPDATE),
             UiEvent::SettingsEdited(edited) => {
                 let welcome = self.settings.has_completed_welcome;
                 self.settings = *edited;

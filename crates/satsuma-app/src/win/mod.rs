@@ -41,6 +41,7 @@ mod system;
 #[cfg(debug_assertions)]
 mod selftest;
 mod settings_window;
+pub(crate) mod setup;
 mod theme;
 mod update;
 mod wheel;

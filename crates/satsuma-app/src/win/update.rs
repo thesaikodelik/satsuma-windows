@@ -20,6 +20,64 @@ const EVERY: Duration = Duration::from_secs(6 * 60 * 60);
 
 /// The downloaded version waiting to be installed.
 static READY: Mutex<Option<String>> = Mutex::new(None);
+/// What the last check found (for Settings › About).
+static STATUS: Mutex<Status> = Mutex::new(Status::Idle);
+/// A check is running (automatic or asked for).
+static BUSY: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Where updating stands, as Settings › About shows it.
+#[derive(Clone, PartialEq, Debug)]
+pub enum Status {
+    Idle,
+    Checking,
+    UpToDate,
+    Downloading(String),
+    Ready(String),
+    Failed(String),
+}
+
+pub fn status() -> Status {
+    if let Some(v) = ready() {
+        return Status::Ready(v);
+    }
+    STATUS.lock().map(|s| s.clone()).unwrap_or(Status::Idle)
+}
+
+fn set_status(s: Status) {
+    if let Ok(mut st) = STATUS.lock() {
+        *st = s;
+    }
+}
+
+/// One check, unless one is already running. `asked`: the person pressed Check Now, so
+/// "checking", "up to date" and failures are shown.
+fn run_check(asked: bool) {
+    use std::sync::atomic::Ordering;
+    if BUSY.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    if asked {
+        set_status(Status::Checking);
+    }
+    match check() {
+        Ok(()) => {}
+        Err(e) => {
+            debug!("update check: {e}");
+            set_status(if asked { Status::Failed(e) } else { Status::Idle });
+        }
+    }
+    BUSY.store(false, Ordering::SeqCst);
+}
+
+/// Checks right away, in the background (Check Now).
+pub fn check_now() {
+    let _ = std::thread::Builder::new().name("update-now".into()).spawn(|| {
+        unsafe {
+            let _ = windows::Win32::System::Com::CoInitializeEx(None, windows::Win32::System::Com::COINIT_MULTITHREADED);
+        }
+        run_check(true);
+    });
+}
 
 pub const CURRENT: &str = env!("CARGO_PKG_VERSION");
 
@@ -77,9 +135,7 @@ pub fn start() {
         let first = std::env::var("SATSUMA_UPDATE_DELAY").ok().and_then(|s| s.parse().ok()).map(Duration::from_secs).unwrap_or(FIRST_CHECK);
         std::thread::sleep(first);
         loop {
-            if let Err(e) = check() {
-                debug!("update check: {e}");
-            }
+            run_check(false);
             std::thread::sleep(EVERY);
         }
     });
@@ -110,7 +166,11 @@ fn check() -> Result<(), String> {
     let tag = json["tag_name"].as_str().ok_or("no tag_name")?;
     // Tags look like `v0.1.2-windows`; the version is the numbers.
     let version = tag.trim_start_matches(['v', 'V']).split(['-', '+']).next().unwrap_or("").to_string();
-    if !is_newer(&version, CURRENT) || ready().as_deref() == Some(version.as_str()) {
+    if !is_newer(&version, CURRENT) {
+        set_status(Status::UpToDate);
+        return Ok(());
+    }
+    if ready().as_deref() == Some(version.as_str()) {
         return Ok(());
     }
     let asset = json["assets"]
@@ -119,6 +179,7 @@ fn check() -> Result<(), String> {
         .and_then(|x| x["browser_download_url"].as_str())
         .ok_or("no Windows asset")?;
     debug!("update {version} available; downloading");
+    set_status(Status::Downloading(version.clone()));
     let zip_path = dir.join(format!("{version}.zip"));
     download(asset, &zip_path)?;
     let target = dir.join(&version);
@@ -219,6 +280,7 @@ pub fn install() -> Result<String, String> {
     if let Ok(mut r) = READY.lock() {
         *r = None;
     }
+    super::setup::record_version(&version);
     Ok(version)
 }
 

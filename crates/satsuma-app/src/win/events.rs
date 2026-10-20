@@ -25,6 +25,8 @@ pub enum UiEvent {
     WindowDeactivated { window: isize },
     /// The Settings window changed the settings (already applied to the look; the app saves them).
     SettingsEdited(Box<satsuma_core::settings::Settings>),
+    /// Settings › About: install the downloaded update now.
+    RestartToUpdate,
 }
 
 thread_local! {

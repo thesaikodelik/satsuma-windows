@@ -38,11 +38,23 @@ pub const COMBO_CHOICES: [Mods; 6] = [
     Mods::CONTROL.union(Mods::OPTION),
 ];
 const IMAGE_SIZES: [u32; 4] = [0, 4096, 2048, 1024];
-const TABS: [&str; 4] = ["General", "Appearance", "Shortcuts", "Files"];
+const TABS: [&str; 5] = ["General", "Appearance", "Shortcuts", "Files", "About"];
 const GENERAL: usize = 0;
 const APPEARANCE: usize = 1;
 const SHORTCUTS: usize = 2;
 const FILES: usize = 3;
+const ABOUT: usize = 4;
+
+/// Settings › About: who made Satsuma (role, name, link).
+const CREDITS: [(&str, &str, &str); 2] = [
+    ("Created by (macOS)", "sonatina-dream", "https://github.com/sonatina-dream/satsuma"),
+    ("Windows edition by", "thesaikodelik", "https://github.com/thesaikodelik/satsuma-windows"),
+];
+const SPONSOR_URL: &str = "https://github.com/sponsors/thesaikodelik";
+/// The credit rows start here; each is `CREDIT_H` tall.
+const CREDITS_Y: f32 = 222.0;
+const CREDIT_H: f32 = 48.0;
+const UPDATES_Y: f32 = 336.0;
 
 type R = (f32, f32, f32, f32);
 
@@ -81,6 +93,10 @@ enum Id {
     Transparency,
     Picker(Picker),
     Toggle(Toggle),
+    /// About: a credit row (0, 1) or the sponsor link (2).
+    Link(usize),
+    /// About: Check Now, or Restart to Update once one is downloaded.
+    UpdateButton,
     Done,
 }
 
@@ -96,7 +112,13 @@ struct State {
     scale: f32,
     /// When the how-to animation started.
     tutorial: Instant,
+    /// The control under the pointer (About's links and buttons light up).
+    hover: Option<Id>,
+    /// The app icon for About (RGBA, `LOGO_PX` square).
+    logo: Vec<u8>,
 }
+
+const LOGO_PX: u32 = 160;
 
 /// Rows hold a label on the left and a control on the right.
 const ROW_LABEL_X: f32 = 20.0;
@@ -159,6 +181,13 @@ impl State {
                 v.push((Id::Picker(Picker::ImageSize), row(222.0)));
                 v.push((Id::Picker(Picker::Split), row(298.0)));
             }
+            ABOUT => {
+                for k in 0..CREDITS.len() {
+                    v.push((Id::Link(k), (16.0, CREDITS_Y + k as f32 * CREDIT_H, W - 32.0, CREDIT_H - 4.0)));
+                }
+                v.push((Id::UpdateButton, (W - 20.0 - 150.0, UPDATES_Y + 28.0, 150.0, 30.0)));
+                v.push((Id::Link(2), (14.0, H - 44.0, 150.0, 26.0)));
+            }
             _ => {
                 v.push((Id::Picker(Picker::Terminal), row(70.0)));
                 v.push((Id::Picker(Picker::Float), row(112.0)));
@@ -183,7 +212,8 @@ impl State {
     }
 
     fn moving(&self) -> bool {
-        self.tab == SHORTCUTS || self.pill.is_some_and(|(_, _, t)| t.elapsed().as_secs_f32() < PILL_SECONDS) || self.preview.liquid.moving()
+        (self.tab == ABOUT && matches!(super::update::status(), super::update::Status::Checking | super::update::Status::Downloading(_)))
+            || self.tab == SHORTCUTS || self.pill.is_some_and(|(_, _, t)| t.elapsed().as_secs_f32() < PILL_SECONDS) || self.preview.liquid.moving()
     }
 
     /// Applies the settings everywhere at once and tells the app to save them.
@@ -339,6 +369,7 @@ impl State {
                 label("Split into", 298.0);
                 self.paint_picker(p, pal, Picker::Split);
             }
+            ABOUT => self.paint_about(p, pal),
             _ => {
                 label("Terminal app", 70.0);
                 self.paint_picker(p, pal, Picker::Terminal);
@@ -495,6 +526,79 @@ impl State {
         p.text(&captions[step], (x0 + 44.0, cy, w - 44.0, 20.0), 12.0, Weight::Semibold, pal.label.alpha(local), Align::Leading, false);
     }
 
+    /// About, after Tachyon's: the icon, name and version; who made it; updates; a coffee.
+    fn paint_about(&self, p: &Painter, pal: &Palette) {
+        use super::update::{status, Status, CURRENT};
+        let c = W / 2.0;
+        // The icon on a soft citrus glow.
+        let (icon, iy) = (72.0, 58.0);
+        for k in (1..=6).rev() {
+            p.fill_circle(c, iy + icon / 2.0, icon / 2.0 + k as f32 * 5.0, ACCENT.alpha(0.035));
+        }
+        p.image(&self.logo, LOGO_PX, LOGO_PX, (c - icon / 2.0, iy, icon, icon));
+        p.text("Satsuma", (0.0, 136.0, W, 28.0), 20.0, Weight::Semibold, pal.label, Align::Center, false);
+        p.text(&format!("Version {CURRENT}"), (0.0, 164.0, W, 18.0), 12.0, Weight::Regular, pal.secondary, Align::Center, false);
+        p.text("Drag files, tap a key, drop on a petal.", (0.0, 184.0, W, 18.0), 12.0, Weight::Regular, pal.tertiary, Align::Center, false);
+        p.line(16.0, 212.5, W - 16.0, 212.5, pal.separator, 1.0);
+
+        // Who made it: a role over a name, opening their page.
+        for (k, (role, name, _)) in CREDITS.iter().enumerate() {
+            let Some(r) = self.rect_of(Id::Link(k)) else { continue };
+            if self.hover == Some(Id::Link(k)) || self.pressed == Some(Id::Link(k)) {
+                p.fill_round_rect(r.0, r.1, r.2, r.3, if pal.glass { 14.0 } else { 6.0 }, pal.control.alpha(if pal.glass { 1.8 } else { 1.0 }));
+            }
+            p.text(role, (r.0 + 12.0, r.1 + 5.0, r.2 - 50.0, 16.0), 11.0, Weight::Regular, pal.secondary, Align::Leading, false);
+            p.text(name, (r.0 + 12.0, r.1 + 20.0, r.2 - 50.0, 20.0), 13.0, Weight::Semibold, pal.label, Align::Leading, false);
+            p.icon('\u{E8A7}', r.0 + r.2 - 20.0, r.1 + r.3 / 2.0, 13.0, pal.secondary);
+        }
+
+        // Updates.
+        p.text("UPDATES", (ROW_LABEL_X, UPDATES_Y, W - 40.0, 22.0), 11.0, Weight::Semibold, pal.secondary, Align::Leading, false);
+        let st = status();
+        let line = match &st {
+            Status::Idle => "Satsuma looks for new versions by itself.".to_string(),
+            Status::Checking => "Checking for updates…".to_string(),
+            Status::UpToDate => format!("Satsuma {CURRENT} is up to date."),
+            Status::Downloading(v) => format!("Downloading Satsuma {v}…"),
+            Status::Ready(v) => format!("Satsuma {v} is ready to install."),
+            Status::Failed(e) => format!("Couldn't check for updates ({e})"),
+        };
+        let busy = matches!(st, Status::Checking | Status::Downloading(_));
+        let mut tx = ROW_LABEL_X;
+        if busy {
+            // Three dots hop while it works, as in the wheel's hub.
+            let phase = self.tutorial.elapsed().as_secs_f32();
+            for k in 0..3 {
+                let t = (phase * 2.4 - k as f32 * 0.18).rem_euclid(1.0);
+                let hop = if t < 0.5 { (t * 2.0 * std::f32::consts::PI).sin().max(0.0) } else { 0.0 };
+                p.fill_circle(ROW_LABEL_X + 3.0 + k as f32 * 8.0, UPDATES_Y + 43.0 - hop * 4.0, 2.4, ACCENT.alpha(0.55 + 0.45 * hop));
+            }
+            tx += 28.0;
+        }
+        let color = if matches!(st, Status::Failed(_)) { pal.error } else { pal.label };
+        p.text(&line, (tx, UPDATES_Y + 28.0, W - 20.0 - 150.0 - 12.0 - tx, 30.0), 12.0, Weight::Regular, color, Align::Leading, true);
+        if let Some(r) = self.rect_of(Id::UpdateButton) {
+            let ready = matches!(st, Status::Ready(_));
+            let (radius, down) = (if pal.glass { r.3 / 2.0 } else { 6.0 }, self.pressed == Some(Id::UpdateButton));
+            if ready {
+                p.fill_round_rect(r.0, r.1, r.2, r.3, radius, if down { Rgba(0.85, 0.36, 0.07, 1.0) } else { ACCENT });
+                p.text("Restart to Update", r, 12.5, Weight::Semibold, Rgba::WHITE, Align::Center, false);
+            } else {
+                let lit = self.hover == Some(Id::UpdateButton) && !busy;
+                p.fill_round_rect(r.0, r.1, r.2, r.3, radius, pal.control.alpha(if lit || down { 2.2 } else if pal.glass { 1.4 } else { 1.0 }));
+                p.stroke_round_rect(r.0 + 0.5, r.1 + 0.5, r.2 - 1.0, r.3 - 1.0, radius - 0.5, if pal.glass { pal.rim } else { pal.separator }, 1.0);
+                p.text("Check Now", r, 12.5, Weight::Semibold, if busy { pal.tertiary } else { pal.label }, Align::Center, false);
+            }
+        }
+
+        // A coffee for the Windows edition.
+        if let Some(r) = self.rect_of(Id::Link(2)) {
+            let lit = self.hover == Some(Id::Link(2));
+            p.text("\u{2615}", (r.0 + 4.0, r.1, 22.0, r.3), 15.0, Weight::Regular, Rgba::hex(0xB7793E, 1.0), Align::Leading, false);
+            p.text("Buy me a coffee", (r.0 + 26.0, r.1, r.2 - 26.0, r.3), 12.0, Weight::Regular, if lit { pal.label } else { pal.secondary }, Align::Leading, false);
+        }
+    }
+
     fn paint_segments(&self, p: &Painter, pal: &Palette, g: Group) {
         let (track, names, selected) = self.segments(g);
         let n = names.len();
@@ -583,6 +687,13 @@ impl State {
         if self.dragging {
             self.set_transparency_from_x(x);
             return true;
+        }
+        if self.tab == ABOUT {
+            let hover = self.hit(x, y).filter(|id| matches!(id, Id::Link(_) | Id::UpdateButton));
+            if hover != self.hover {
+                self.hover = hover;
+                return true;
+            }
         }
         if self.tab == APPEARANCE {
             let half = (WHEEL_VIEW_SIZE / 2.0) as f32;
@@ -689,7 +800,14 @@ fn animate(hwnd: HWND, s: &State) {
 
 /// The pill and the liquid run at the full frame rate; the line-drawn how-to needs only 30.
 fn frame_ms(s: &State) -> u32 {
-    if s.only_tutorial() { 33 } else { 10 }
+    if s.tab == ABOUT && s.pill.is_none_or(|(_, _, t)| t.elapsed().as_secs_f32() >= PILL_SECONDS) {
+        // Only About's waiting dots move.
+        33
+    } else if s.only_tutorial() {
+        33
+    } else {
+        10
+    }
 }
 
 /// Shows a picker's choices as a menu under it; returns the one chosen.
@@ -792,6 +910,26 @@ impl Handler for Messages {
                     },
                     Some(Id::Toggle(t)) => {
                         self.state.borrow_mut().toggle(t);
+                        refresh(hwnd);
+                    }
+                    Some(Id::Link(k)) => {
+                        let url = CREDITS.get(k).map(|c| c.2).unwrap_or(SPONSOR_URL);
+                        system::open_item(std::path::Path::new(url));
+                    }
+                    Some(Id::UpdateButton) => {
+                        use super::update::Status;
+                        match super::update::status() {
+                            Status::Ready(_) => events::post(UiEvent::RestartToUpdate),
+                            Status::Checking | Status::Downloading(_) => {}
+                            _ => {
+                                super::update::check_now();
+                                // Show "Checking…" at once; the timer follows the check.
+                                std::thread::sleep(std::time::Duration::from_millis(30));
+                                let mut s = self.state.borrow_mut();
+                                s.tutorial = Instant::now();
+                                animate(hwnd, &s);
+                            }
+                        }
                         refresh(hwnd);
                     }
                     Some(Id::Picker(k)) => {
@@ -901,6 +1039,8 @@ pub fn open(settings: &Settings) {
         preview,
         scale: 1.0,
         tutorial: Instant::now(),
+        hover: None,
+        logo: super::icon::app_icon(LOGO_PX),
     }));
 
     let (cx, cy) = system::cursor_pos();

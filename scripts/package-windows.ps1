@@ -59,3 +59,18 @@ $zip = Join-Path $dist "$name.zip"
 if (Test-Path $zip) { Remove-Item -Force $zip }
 Compress-Archive -Path $stage -DestinationPath $zip
 Write-Host "Packed $zip"
+
+# Satsuma Setup: the installer program with the release zip appended
+# (stub | zip | zip length as u64 LE | "SATSUMA1").
+$setup = Join-Path $dist "Satsuma-Setup-$version.exe"
+$stub = [IO.File]::ReadAllBytes((Join-Path $root 'target\release\satsuma-setup.exe'))
+$payload = [IO.File]::ReadAllBytes($zip)
+$out = New-Object IO.MemoryStream
+$out.Write($stub, 0, $stub.Length)
+$out.Write($payload, 0, $payload.Length)
+$len = [BitConverter]::GetBytes([uint64]$payload.Length)
+$out.Write($len, 0, 8)
+$magic = [Text.Encoding]::ASCII.GetBytes('SATSUMA1')
+$out.Write($magic, 0, 8)
+[IO.File]::WriteAllBytes($setup, $out.ToArray())
+Write-Host "Packed $setup"

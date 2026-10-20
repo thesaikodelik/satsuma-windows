@@ -510,13 +510,22 @@ pub fn launch_at_login() -> bool {
 }
 
 pub fn set_launch_at_login(on: bool) -> Result<(), String> {
+    set_launch_command(on, &exe_command())
+}
+
+/// Setup: start the installed `exe` at sign-in (or stop).
+pub fn set_launch_at_login_for(exe: &Path, on: bool) -> Result<(), String> {
+    set_launch_command(on, &format!("\"{}\"", exe.display()))
+}
+
+fn set_launch_command(on: bool, command: &str) -> Result<(), String> {
     unsafe {
         let mut key = HKEY::default();
         RegCreateKeyExW(HKEY_CURRENT_USER, &HSTRING::from(RUN_KEY), None, None, REG_OPTION_NON_VOLATILE, KEY_SET_VALUE, None, &mut key, None)
             .ok()
             .map_err(|e| e.message())?;
         let result = if on {
-            let value: Vec<u8> = exe_command().encode_utf16().chain(std::iter::once(0)).flat_map(|u| u.to_le_bytes()).collect();
+            let value: Vec<u8> = command.encode_utf16().chain(std::iter::once(0)).flat_map(|u| u.to_le_bytes()).collect();
             RegSetValueExW(key, &HSTRING::from("Satsuma"), None, REG_SZ, Some(&value))
         } else {
             RegDeleteValueW(key, &HSTRING::from("Satsuma"))
