@@ -281,6 +281,7 @@ impl Controller {
             combos: self.settings.wheels,
             hub: satsuma_core::wheel::hub_caption(files.len(), bytes),
             update: self.update_ready.clone(),
+            hub_hot: false,
             estimates: Default::default(),
             estimating: false,
             phase: 0.0,

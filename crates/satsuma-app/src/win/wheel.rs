@@ -38,6 +38,8 @@ pub struct WheelModel {
     pub hub: Vec<String>,
     /// A downloaded update waiting for a restart (its version).
     pub update: Option<String>,
+    /// Files are held over the hub while an update is waiting: dropping installs it.
+    pub hub_hot: bool,
     /// Output size per petal ("1.4 MB", "≈ 12 MB"); `None` when it can't be previewed.
     pub estimates: HashMap<WheelItem, Option<String>>,
     /// Sizes are being worked out, so a petal without one shows bouncing dots.
@@ -61,6 +63,7 @@ impl WheelModel {
             combos: WheelCombos::default(),
             hub: Vec::new(),
             update: None,
+            hub_hot: false,
             estimates: HashMap::new(),
             estimating: false,
             phase: 0.0,
@@ -268,7 +271,11 @@ pub fn paint(p: &Painter, m: &WheelModel, pal: &Palette, behind: Option<&Behind>
     let accent = if pal.glass { GLASS_ORANGE_LIGHT } else { ACCENT };
     if selected.is_some() || !m.hub.is_empty() || m.update.is_some() {
         let r = (g.inner - 6.0) as f32;
-        if pal.glass {
+        if m.update.is_some() && m.hub_hot && selected.is_none() {
+            // "Drop here to update": the hub lights up like a petal.
+            p.fill_circle(c, c, r, if pal.glass { GLASS_ORANGE } else { ACCENT });
+            p.stroke_circle(c, c, r - 0.6, if pal.glass { GLASS_ORANGE_LIGHT.alpha(0.7) } else { ACCENT }, 1.2);
+        } else if pal.glass {
             p.fill_circle(c, c, r, white(0.04));
             let rim: Vec<(f32, Rgba)> = [0.0, 1.0 / 3.0, 2.0 / 3.0, 1.0].iter().map(|v| (*v, white(nama_rim(false, *v)))).collect();
             p.round_rect_gradient(c - r + 0.6, c - r + 0.6, 2.0 * r - 1.2, 2.0 * r - 1.2, r - 0.6, &rim, (c, c - r), (c, c + r), Some(1.2));
@@ -299,25 +306,29 @@ pub fn paint(p: &Painter, m: &WheelModel, pal: &Palette, behind: Option<&Behind>
             }
             None => p.text_centered(&item.title(), c, c, 9.5, Weight::Bold, accent),
         }
-    } else if !m.hub.is_empty() || m.update.is_some() {
-        // The hub (drop here to cancel) also tells when an update is waiting.
-        let lines = m.hub.len() + usize::from(m.update.is_some());
-        let n = lines as f32;
+    } else if m.update.is_some() {
+        // An update is waiting: the hub says only that; dropping here installs it.
+        let color = if m.hub_hot { Rgba::WHITE } else { accent };
+        p.text_centered("Update", c, c - 8.0, 14.0, Weight::Bold, color);
+        p.text_centered("ready", c, c + 9.0, 14.0, Weight::Bold, color);
+    } else if !m.hub.is_empty() {
+        let n = m.hub.len() as f32;
         for (k, line) in m.hub.iter().enumerate() {
             let (size, color) = if k == 0 { (10.5, pal.label) } else { (9.0, pal.secondary) };
             let y = c - (n - 1.0) * 6.5 + k as f32 * 13.0;
             p.text_centered(line, c, y, size, Weight::Semibold, color);
         }
-        if m.update.is_some() {
-            let y = c - (n - 1.0) * 6.5 + (lines - 1) as f32 * 13.0 + if m.hub.is_empty() { 0.0 } else { 2.0 };
-            let w = 54.0;
-            p.fill_round_rect(c - w / 2.0, y - 7.0, w, 14.0, 7.0, accent.alpha(0.18));
-            p.text_centered("Update ready", c, y, 7.5, Weight::Bold, accent);
-        }
     }
 }
 
 impl State {
+    /// Inside the hub (screen pixels).
+    fn in_hub(&self, x: i32, y: i32) -> bool {
+        let dx = (x - self.anchor.0) as f64 / self.scale as f64;
+        let dy = (y - self.anchor.1) as f64 / self.scale as f64;
+        (dx * dx + dy * dy).sqrt() < WheelGeometry::default().inner - 4.0
+    }
+
     fn hit(&self, x: i32, y: i32) -> Option<usize> {
         let dx = (x - self.anchor.0) as f64 / self.scale as f64;
         let dy = -((y - self.anchor.1) as f64) / self.scale as f64;
@@ -386,7 +397,12 @@ impl Drops {
         }
         let hit = s.hit(x, y);
         set_selected(self.hwnd.get(), &mut s, hit);
-        if hit.is_some() {
+        let hot = hit.is_none() && s.model.update.is_some() && s.in_hub(x, y);
+        if hot != s.model.hub_hot {
+            s.model.hub_hot = hot;
+            render(self.hwnd.get(), &s);
+        }
+        if hit.is_some() || hot {
             DROPEFFECT_COPY
         } else {
             DROPEFFECT_NONE
@@ -425,6 +441,10 @@ impl DropHandler for Drops {
     fn leave(&self) {
         if let Ok(mut s) = self.state.try_borrow_mut() {
             set_selected(self.hwnd.get(), &mut s, None);
+            if s.model.hub_hot {
+                s.model.hub_hot = false;
+                render(self.hwnd.get(), &s);
+            }
         }
     }
 
@@ -438,6 +458,11 @@ impl DropHandler for Drops {
             Some(item) => {
                 events::post(UiEvent::WheelDrop { item: *item, files, at: s.anchor });
                 DROPEFFECT_COPY
+            }
+            // On the hub while an update waits: install it (the files stay where they are).
+            None if s.model.update.is_some() && s.in_hub(x, y) => {
+                events::post(UiEvent::RestartToUpdate);
+                DROPEFFECT_NONE
             }
             // Off a petal: refuse, so the drag is cancelled.
             None => DROPEFFECT_NONE,
