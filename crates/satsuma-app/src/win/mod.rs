@@ -47,7 +47,7 @@ use std::path::{Path, PathBuf};
 
 pub use app::run;
 #[cfg(debug_assertions)]
-pub use selftest::selftest_drag;
+pub use selftest::{selftest_drag, selftest_screenshot};
 
 /// Lets `satsuma.exe <command>` print to the terminal that started it.
 pub fn attach_console() {
@@ -72,8 +72,9 @@ pub fn render_icon(size: usize, out: &Path) -> Result<(), String> {
     gfx::save_png(&icon::app_icon(px), px, px, out)
 }
 
-pub fn render_editor(_kind: &str, _files: Vec<PathBuf>, _sets: &[(String, f64)], _segment: Option<isize>, _out: &Path) -> Result<(), String> {
-    Err("Editor rendering is not available yet on Windows.".into())
+pub fn render_editor(kind: &str, files: Vec<PathBuf>, sets: &[(String, f64)], segment: Option<isize>, out: &Path) -> Result<(), String> {
+    let dark = std::env::var_os("SATSUMA_DARK").is_some();
+    editor::render_png(kind, files, sets, segment, dark, out)
 }
 
 pub fn ffmpeg_hint() -> &'static str {

@@ -194,8 +194,11 @@ impl Surface {
         out
     }
 
-    pub fn bitmap(&self) -> HBITMAP {
-        self.bitmap
+    /// Copies the surface into a window's device context (for opaque windows).
+    pub fn blit(&self, dc: HDC, x: i32, y: i32) {
+        unsafe {
+            let _ = BitBlt(dc, x, y, self.width, self.height, Some(self.dc), 0, 0, SRCCOPY);
+        }
     }
 }
 
@@ -265,6 +268,21 @@ impl Painter {
     pub fn fill_round_rect(&self, x: f32, y: f32, w: f32, h: f32, r: f32, c: Rgba) {
         let rr = D2D1_ROUNDED_RECT { rect: D2D_RECT_F { left: x, top: y, right: x + w, bottom: y + h }, radiusX: r, radiusY: r };
         unsafe { self.rt.FillRoundedRectangle(&rr, &self.brush(c)) }
+    }
+
+    /// A rounded rectangle filled with a linear gradient from `start` to `end` (evenly spaced stops).
+    #[allow(clippy::too_many_arguments)]
+    pub fn fill_round_rect_gradient(&self, x: f32, y: f32, w: f32, h: f32, r: f32, stops: &[Rgba], start: (f32, f32), end: (f32, f32)) {
+        let n = stops.len().max(2) - 1;
+        let gs: Vec<D2D1_GRADIENT_STOP> = stops.iter().enumerate().map(|(i, c)| D2D1_GRADIENT_STOP { position: i as f32 / n as f32, color: c.d2d() }).collect();
+        let rr = D2D1_ROUNDED_RECT { rect: D2D_RECT_F { left: x, top: y, right: x + w, bottom: y + h }, radiusX: r, radiusY: r };
+        unsafe {
+            let Ok(collection) = self.rt.CreateGradientStopCollection(&gs, D2D1_GAMMA_2_2, D2D1_EXTEND_MODE_CLAMP) else { return };
+            let props = D2D1_LINEAR_GRADIENT_BRUSH_PROPERTIES { startPoint: D2D_POINT_2F { X: start.0, Y: start.1 }, endPoint: D2D_POINT_2F { X: end.0, Y: end.1 } };
+            if let Ok(brush) = self.rt.CreateLinearGradientBrush(&props, None, &collection) {
+                self.rt.FillRoundedRectangle(&rr, &brush);
+            }
+        }
     }
 
     pub fn stroke_round_rect(&self, x: f32, y: f32, w: f32, h: f32, r: f32, c: Rgba, width: f32) {

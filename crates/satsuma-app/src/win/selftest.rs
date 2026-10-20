@@ -222,3 +222,30 @@ pub fn selftest_drag(args: &[String]) -> i32 {
         1
     }
 }
+
+/// `satsuma-cli selftest-screenshot "<window title>" <out.png>`: captures a top-level window.
+pub fn selftest_screenshot(args: &[String]) -> i32 {
+    let (Some(title), Some(out)) = (args.first(), args.get(1)) else {
+        eprintln!("Usage: satsuma-cli selftest-screenshot <window title> <out.png>");
+        return 2;
+    };
+    unsafe {
+        let _ = windows::Win32::UI::HiDpi::SetProcessDpiAwarenessContext(windows::Win32::UI::HiDpi::DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
+        let Ok(hwnd) = FindWindowW(None, &windows::core::HSTRING::from(title.as_str())) else {
+            eprintln!("No window titled {title}");
+            return 1;
+        };
+        let mut r = windows::Win32::Foundation::RECT::default();
+        // The visible frame, without the invisible resize borders.
+        if windows::Win32::Graphics::Dwm::DwmGetWindowAttribute(hwnd, windows::Win32::Graphics::Dwm::DWMWA_EXTENDED_FRAME_BOUNDS, &mut r as *mut _ as *mut _, std::mem::size_of_val(&r) as u32).is_err() {
+            let _ = GetWindowRect(hwnd, &mut r);
+        }
+        match screenshot(r.left, r.top, r.right - r.left, r.bottom - r.top, std::path::Path::new(out)) {
+            Ok(()) => 0,
+            Err(e) => {
+                eprintln!("{e}");
+                1
+            }
+        }
+    }
+}

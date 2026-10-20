@@ -69,6 +69,8 @@ pub fn run(args: &[String]) -> i32 {
         "render-demo" => crate::demo::run(rest),
         #[cfg(all(windows, debug_assertions))]
         "selftest-drag" => crate::platform::selftest_drag(rest),
+        #[cfg(all(windows, debug_assertions))]
+        "selftest-screenshot" => crate::platform::selftest_screenshot(rest),
         other => {
             eprintln!("Unknown command `{other}`.\n\n{USAGE}");
             2

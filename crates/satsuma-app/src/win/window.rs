@@ -25,7 +25,7 @@ fn register_class() {
         let icon = LoadIconW(Some(instance()), PCWSTR(1 as _)).unwrap_or_default();
         let wc = WNDCLASSEXW {
             cbSize: std::mem::size_of::<WNDCLASSEXW>() as u32,
-            style: CS_HREDRAW | CS_VREDRAW,
+            style: CS_HREDRAW | CS_VREDRAW | CS_DBLCLKS,
             lpfnWndProc: Some(wndproc),
             hInstance: instance(),
             hIcon: icon,
