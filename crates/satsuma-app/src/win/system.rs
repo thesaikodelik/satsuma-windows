@@ -36,7 +36,9 @@ pub fn current_mods() -> Mods {
     if down(VK_SHIFT) {
         m = m.union(Mods::SHIFT);
     }
-    if down(VK_CONTROL) {
+    // AltGr (right Alt on many layouts) arrives as Left Ctrl + Right Alt: count it as Alt.
+    let altgr = down(VK_RMENU) && down(VK_LCONTROL) && !down(VK_RCONTROL);
+    if down(VK_CONTROL) && !altgr {
         m = m.union(Mods::CONTROL);
     }
     if down(VK_MENU) {

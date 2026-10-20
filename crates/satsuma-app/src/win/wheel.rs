@@ -375,7 +375,19 @@ impl WheelWindow {
         unsafe {
             let _ = SetWindowPos(self.hwnd, Some(HWND_TOPMOST), 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW);
             let under = WindowFromPoint(windows::Win32::Foundation::POINT { x: at.0, y: at.1 });
-            debug!("probe shown; window under pointer is the probe: {}", under == self.hwnd);
+            if under == self.hwnd {
+                debug!("probe shown under the pointer");
+            } else {
+                let mut class = [0u16; 64];
+                let mut title = [0u16; 64];
+                let n = GetClassNameW(under, &mut class) as usize;
+                let t = GetWindowTextW(under, &mut title) as usize;
+                debug!(
+                    "probe shown, but the window under the pointer is {:?} \"{}\"",
+                    String::from_utf16_lossy(&class[..n]),
+                    String::from_utf16_lossy(&title[..t])
+                );
+            }
         }
     }
 

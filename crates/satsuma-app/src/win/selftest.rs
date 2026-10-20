@@ -107,6 +107,9 @@ pub fn selftest_drag(args: &[String]) -> i32 {
     let mut petal = 0usize;
     let mut center = false;
     let mut shot: Option<PathBuf> = None;
+    let mut from: Option<(i32, i32)> = None;
+    let mut hold = false;
+    let mut also: Option<VIRTUAL_KEY> = None;
     let mut files = Vec::new();
     let mut it = args.iter();
     while let Some(a) = it.next() {
@@ -119,6 +122,18 @@ pub fn selftest_drag(args: &[String]) -> i32 {
             "--petal" => petal = it.next().and_then(|n| n.parse().ok()).unwrap_or(0),
             "--center" => center = true,
             "--screenshot" => shot = it.next().map(PathBuf::from),
+            // Start the drag from another app (e.g. a file icon in File Explorer) at X,Y.
+            "--from" => from = it.next().and_then(|v| v.split_once(',')).and_then(|(x, y)| Some((x.trim().parse().ok()?, y.trim().parse().ok()?))),
+            // Keep the key held until the drop instead of tapping it.
+            "--hold" => hold = true,
+            // Hold another key during the drag first (Shift to move, Ctrl to copy …).
+            "--also" => {
+                also = match it.next().map(String::as_str) {
+                    Some("ctrl") => Some(VK_CONTROL),
+                    Some("alt") => Some(VK_MENU),
+                    _ => Some(VK_SHIFT),
+                }
+            }
             f => files.push(dunce::simplified(&std::fs::canonicalize(f).unwrap_or_else(|_| PathBuf::from(f))).to_path_buf()),
         }
     }
@@ -149,7 +164,7 @@ pub fn selftest_drag(args: &[String]) -> i32 {
         let work = super::system::work_area_at(x, y);
         ((work.left + work.right) / 2, (work.top + work.bottom) / 2)
     };
-    let start = (cx - 220, cy);
+    let start = from.unwrap_or((cx - 220, cy));
     let anchor = (cx, cy);
     let scale = super::system::scale_at(cx, cy);
     let lp = WheelGeometry::default().label_position(petal, items.len());
@@ -157,7 +172,7 @@ pub fn selftest_drag(args: &[String]) -> i32 {
     let original = super::system::cursor_pos();
 
     let result = Rc::new(RefCell::new(None));
-    let hwnd = window::create(
+    let hwnd = if from.is_some() { HWND::default() } else { window::create(
         WS_EX_TOPMOST | WS_EX_TOOLWINDOW,
         WS_POPUP | WS_VISIBLE | WS_BORDER,
         "Satsuma drag test",
@@ -167,7 +182,7 @@ pub fn selftest_drag(args: &[String]) -> i32 {
         80,
         None,
         Rc::new(Source { files, result: result.clone() }),
-    );
+    ) };
     let input = std::thread::spawn(move || {
         std::thread::sleep(Duration::from_millis(300));
         unsafe {
@@ -178,9 +193,15 @@ pub fn selftest_drag(args: &[String]) -> i32 {
         std::thread::sleep(Duration::from_millis(150));
         glide(start, anchor, 12);
         std::thread::sleep(Duration::from_millis(120));
+        if let Some(k) = also {
+            key(k, false);
+            std::thread::sleep(Duration::from_millis(200));
+        }
         key(vk, false);
         std::thread::sleep(Duration::from_millis(70));
-        key(vk, true);
+        if !hold {
+            key(vk, true);
+        }
         std::thread::sleep(Duration::from_millis(500));
         glide(anchor, target, 10);
         std::thread::sleep(Duration::from_millis(450));
@@ -196,12 +217,36 @@ pub fn selftest_drag(args: &[String]) -> i32 {
         let n = unsafe { GetWindowTextW(under, &mut title) } as usize;
         if String::from_utf16_lossy(&title[..n]) != "Satsuma Wheel" {
             println!("the wheel is not under the pointer; cancelling the drag");
+            // Release modifiers first: Ctrl+Esc would open Start.
+            if let Some(k) = also {
+                key(k, true);
+            }
+            if hold {
+                key(vk, true);
+            }
             key(VK_ESCAPE, false);
             key(VK_ESCAPE, true);
             std::thread::sleep(Duration::from_millis(100));
         }
         mouse(MOUSEEVENTF_LEFTUP);
+        if hold {
+            key(vk, true);
+        }
+        if let Some(k) = also {
+            key(k, true);
+        }
+        if from.is_some() {
+            std::thread::sleep(Duration::from_millis(300));
+        }
     });
+    if from.is_some() {
+        let _ = input.join();
+        unsafe {
+            let _ = SetCursorPos(original.0, original.1);
+        }
+        println!("drag from another app finished; see the app's log for what it saw");
+        return 0;
+    }
     unsafe {
         let mut msg = MSG::default();
         while GetMessageW(&mut msg, None, 0, 0).as_bool() {

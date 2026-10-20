@@ -60,6 +60,8 @@ const WM_TRAY: u32 = WM_APP + 1;
 const TIMER_TICK: usize = 1;
 /// How long the probe waits for a drag to reach it.
 const PROBE_TIMEOUT: Duration = Duration::from_millis(650);
+/// Probes per mouse press, so a long text selection with Shift held stays cheap.
+const MAX_PROBES: u32 = 12;
 
 enum JobMsg {
     Progress(BatchProgress),
@@ -167,6 +169,9 @@ struct Controller {
     prev_mods: Mods,
     /// Where the mouse button went down, for the "key already held" case.
     press: Option<Point>,
+    /// Where the last probe of this press appeared, and how many there were.
+    probe_from: Option<Point>,
+    probes: u32,
     hud: Hud,
     hud_hide_at: Option<Instant>,
     /// When the mouse comes up over a petal, the drop arrives just after; keep the wheel briefly.
@@ -280,12 +285,29 @@ impl Controller {
         }
     }
 
+    /// The wheel the keys ask for. An exact match wins; otherwise a key pressed on top of
+    /// others (Shift or Ctrl held to make Explorer move or copy, say) decides by itself.
+    fn wanted_mode(&self, mods: Mods, prev: Mods, changed: bool) -> Option<WheelMode> {
+        let combos = &self.settings.wheels;
+        if let Some(m) = combos.mode_for(mods) {
+            return Some(m);
+        }
+        if !changed {
+            return None;
+        }
+        combos.mode_for(Mods::from_bits(mods.bits() & !prev.bits()))
+    }
+
     fn sample_drag(&mut self) {
         let mouse_down = system::left_mouse_down();
         let mods = system::current_mods();
         let at = system::cursor_pos();
-        let changed = mods != self.prev_mods;
+        let prev = self.prev_mods;
+        let changed = mods != prev;
         self.prev_mods = mods;
+        if changed {
+            debug!("keys {:?} (button {})", mods, if mouse_down { "down" } else { "up" });
+        }
         if self.keyboard_files.is_some() {
             // The menu-opened wheel owns the window; ignore drag gestures meanwhile.
             return;
@@ -293,6 +315,8 @@ impl Controller {
 
         if !mouse_down {
             self.press = None;
+            self.probe_from = None;
+            self.probes = 0;
             match std::mem::replace(&mut self.drag, Drag::Idle) {
                 Drag::Open { .. } => {
                     debug!("gesture close");
@@ -309,13 +333,17 @@ impl Controller {
         }
 
         let press = *self.press.get_or_insert(at);
-        let wanted = self.settings.wheels.mode_for(mods);
+        let wanted = self.wanted_mode(mods, prev, changed);
         match &mut self.drag {
             Drag::Idle => {
-                // A key tapped mid-drag, or one held since before the drag moved away.
-                let moved = (at.0 - press.0).abs().max((at.1 - press.1).abs()) > unsafe { GetSystemMetrics(SM_CXDRAG) } * 2;
-                if let Some(mode) = wanted.filter(|_| changed || moved) {
+                // A key tapped mid-drag, or one held while the pointer travels (the drag may
+                // only start, or reach a window, after the key went down).
+                let from = self.probe_from.unwrap_or(press);
+                let moved = (at.0 - from.0).abs().max((at.1 - from.1).abs()) > unsafe { GetSystemMetrics(SM_CXDRAG) } * 2;
+                if let Some(mode) = wanted.filter(|_| (changed || moved) && self.probes < MAX_PROBES) {
                     debug!("probe for {mode:?} at {at:?}");
+                    self.probes += 1;
+                    self.probe_from = Some(at);
                     self.wheel_hide_at = None;
                     self.wheel.probe(at);
                     system::nudge_pointer();
@@ -327,9 +355,10 @@ impl Controller {
                     *mode = m;
                 }
                 if since.elapsed() > PROBE_TIMEOUT {
-                    debug!("probe timed out: not a file drag");
+                    // No drag reached the probe (yet): try again once the pointer moves on.
+                    debug!("probe timed out");
                     self.wheel.hide();
-                    self.drag = Drag::Rejected;
+                    self.drag = Drag::Idle;
                 }
             }
             Drag::Open { mode, files } => {
@@ -876,6 +905,8 @@ pub fn run() {
         drag: Drag::Idle,
         prev_mods: system::current_mods(),
         press: None,
+        probe_from: None,
+        probes: 0,
         hud: Hud::new(),
         hud_hide_at: None,
         wheel_hide_at: None,
