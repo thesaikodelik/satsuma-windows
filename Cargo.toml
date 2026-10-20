@@ -3,7 +3,7 @@ resolver = "2"
 members = ["crates/satsuma-core", "crates/satsuma-engine", "crates/satsuma-app"]
 
 [workspace.package]
-version = "0.1.8"
+version = "0.1.9"
 edition = "2021"
 license = "MIT"
 rust-version = "1.80"
