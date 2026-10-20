@@ -81,7 +81,7 @@ pub fn tool_available(env: &Env, tool: Tool, input: Format) -> bool {
             Pdf => true,
             Wav | Flac => ff,
             Mp3 | M4a => audio_codec(input),
-            Mp4 | Mov | Mkv => ff && (has_h264(env) || env.pick_encoder(&["hevc_videotoolbox", "libx265", "hevc_mf"]).is_some()),
+            Mp4 | Mov | Mkv => ff && (has_h264(env) || env.pick_encoder(&["hevc_videotoolbox", "libx265"]).is_some()),
             _ => false,
         },
         RemoveMetadata => match input.category() {

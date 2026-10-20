@@ -177,6 +177,11 @@ impl State {
         self.widgets().into_iter().find(|(i, _)| *i == id).map(|(_, r)| r)
     }
 
+    /// Only the how-to animation is changing, so frames can redraw just its area.
+    fn only_tutorial(&self) -> bool {
+        self.tab == SHORTCUTS && !self.pill.is_some_and(|(_, _, t)| t.elapsed().as_secs_f32() < PILL_SECONDS) && !self.preview.liquid.moving() && self.pressed.is_none()
+    }
+
     fn moving(&self) -> bool {
         self.tab == SHORTCUTS || self.pill.is_some_and(|(_, _, t)| t.elapsed().as_secs_f32() < PILL_SECONDS) || self.preview.liquid.moving()
     }
@@ -645,6 +650,25 @@ fn draw_cursor(p: &Painter, x: f32, y: f32, ink: Rgba, pal: &Palette) {
 
 struct Messages {
     state: Rc<RefCell<State>>,
+    /// The last frame, kept so animation frames redraw only what moves.
+    surface: RefCell<Option<Surface>>,
+}
+
+/// The how-to scene and its caption (DIPs).
+const TUTORIAL_CLIP: (f32, f32, f32, f32) = (14.0, 234.0, W - 28.0, 180.0);
+
+fn tutorial_rect_px(scale: f32) -> RECT {
+    let (x, y, w, h) = TUTORIAL_CLIP;
+    RECT { left: (x * scale).floor() as i32, top: (y * scale).floor() as i32, right: ((x + w) * scale).ceil() as i32, bottom: ((y + h) * scale).ceil() as i32 }
+}
+
+/// General, or (debug builds) the tab number in SATSUMA_OPEN_SETTINGS.
+fn initial_tab() -> usize {
+    #[cfg(debug_assertions)]
+    if let Some(t) = std::env::var("SATSUMA_OPEN_SETTINGS").ok().and_then(|v| v.parse::<usize>().ok()).filter(|t| *t < TABS.len()) {
+        return t;
+    }
+    GENERAL
 }
 
 fn scale_of(hwnd: HWND) -> f32 {
@@ -659,8 +683,13 @@ fn refresh(hwnd: HWND) {
 
 fn animate(hwnd: HWND, s: &State) {
     if s.moving() {
-        unsafe { SetTimer(Some(hwnd), PILL_TIMER, 10, None) };
+        unsafe { SetTimer(Some(hwnd), PILL_TIMER, frame_ms(s), None) };
     }
+}
+
+/// The pill and the liquid run at the full frame rate; the line-drawn how-to needs only 30.
+fn frame_ms(s: &State) -> u32 {
+    if s.only_tutorial() { 33 } else { 10 }
 }
 
 /// Shows a picker's choices as a menu under it; returns the one chosen.
@@ -696,10 +725,31 @@ impl Handler for Messages {
                     if let Ok(mut s) = self.state.try_borrow_mut() {
                         s.scale = scale_of(hwnd);
                     }
-                    if let (Ok(surface), Ok(s)) = (Surface::new(r.right, r.bottom), self.state.try_borrow()) {
+                    if let (Ok(s), Ok(mut cached)) = (self.state.try_borrow(), self.surface.try_borrow_mut()) {
                         let pal = Palette::current();
-                        surface.draw(scale_of(hwnd), |p| s.paint(p, &pal));
-                        surface.blit(dc, 0, 0);
+                        let scale = scale_of(hwnd);
+                        let (w, h) = (r.right.max(1), r.bottom.max(1));
+                        // Reuse the last frame while the size holds; then a repaint of just
+                        // the how-to area (what the animation invalidates) redraws only it.
+                        let keep = cached.as_ref().is_some_and(|c| c.width == w && c.height == h && !c.is_lost());
+                        if !keep {
+                            *cached = Surface::new(w, h).ok();
+                        }
+                        if let Some(surface) = cached.as_ref() {
+                            let t = tutorial_rect_px(scale);
+                            let dirty = ps.rcPaint;
+                            let inside = dirty.left >= t.left && dirty.top >= t.top && dirty.right <= t.right && dirty.bottom <= t.bottom;
+                            if keep && inside && s.tab == SHORTCUTS {
+                                surface.draw_clipped(scale, TUTORIAL_CLIP, |p| {
+                                    p.fill_round_rect(0.0, 0.0, W, H, 0.0, if pal.glass { pal.backdrop } else { Rgba(pal.panel.0, pal.panel.1, pal.panel.2, 1.0) });
+                                    s.paint_tutorial(p, &pal, 240.0);
+                                });
+                                surface.blit_rect(dc, t);
+                            } else {
+                                surface.draw(scale, |p| s.paint(p, &pal));
+                                surface.blit(dc, 0, 0);
+                            }
+                        }
                     }
                     let _ = EndPaint(hwnd, &ps);
                 }
@@ -759,17 +809,28 @@ impl Handler for Messages {
                 Some(LRESULT(0))
             }
             WM_TIMER if wparam.0 == PILL_TIMER => {
-                let moving = {
+                let (moving, only_tutorial, ms) = {
                     let mut s = self.state.try_borrow_mut().ok()?;
                     s.preview.liquid.step(Instant::now());
-                    s.moving()
+                    (s.moving(), s.only_tutorial(), frame_ms(&s))
                 };
-                if !moving {
-                    unsafe {
+                unsafe {
+                    if !moving {
                         let _ = KillTimer(Some(hwnd), PILL_TIMER);
+                    } else {
+                        SetTimer(Some(hwnd), PILL_TIMER, ms, None);
                     }
                 }
-                refresh(hwnd);
+                if unsafe { IsIconic(hwnd) }.as_bool() {
+                    // Minimised: nothing to show.
+                } else if only_tutorial {
+                    let r = tutorial_rect_px(scale_of(hwnd));
+                    unsafe {
+                        let _ = InvalidateRect(Some(hwnd), Some(&r), false);
+                    }
+                } else {
+                    refresh(hwnd);
+                }
                 Some(LRESULT(0))
             }
             WM_KEYDOWN => {
@@ -833,7 +894,7 @@ pub fn open(settings: &Settings) {
     let state = Rc::new(RefCell::new(State {
         settings: settings.clone(),
         login: system::launch_at_login(),
-        tab: GENERAL,
+        tab: initial_tab(),
         pill: None,
         pressed: None,
         dragging: false,
@@ -854,8 +915,9 @@ pub fn open(settings: &Settings) {
     let work = system::work_area_at(cx, cy);
     let x = (work.left + work.right - ww) / 2;
     let y = ((work.top + work.bottom - wh) / 2).max(work.top);
-    let hwnd = window::create(ex, style, TITLE, x, y, ww, wh, None, Rc::new(Messages { state }));
+    let hwnd = window::create(ex, style, TITLE, x, y, ww, wh, None, Rc::new(Messages { state: state.clone(), surface: RefCell::new(None) }));
     apply_theme(hwnd);
+    animate(hwnd, &state.borrow());
     let s = scale_of(hwnd);
     if (s - scale).abs() > 0.01 {
         let mut r = RECT { left: 0, top: 0, right: (W * s).round() as i32, bottom: (H * s).round() as i32 };

@@ -156,6 +156,10 @@ pub fn to_html(path: &Path, title: &str) -> Result<String> {
     let mut cell_paras = 0usize;
     let mut pending_num: (Option<String>, u8) = (None, 0);
     let mut in_ppr = false;
+    // Paragraphs inside text boxes nest inside a run of the outer paragraph.
+    let mut outer: Vec<(Option<Para>, RunFmt)> = Vec::new();
+    // `mc:Fallback` repeats the `mc:Choice` content for old readers; read it once.
+    let mut fallback = 0usize;
 
     let close_lists = |body: &mut String, stack: &mut Vec<(bool, u8)>, keep: usize| {
         while stack.len() > keep {
@@ -165,9 +169,30 @@ pub fn to_html(path: &Path, title: &str) -> Result<String> {
     };
 
     for t in tokenize(&doc) {
+        match &t {
+            Token::Open { name, self_closing, .. } if name == "mc:fallback" => {
+                if !*self_closing {
+                    fallback += 1;
+                }
+                continue;
+            }
+            Token::Close { name } if name == "mc:fallback" => {
+                fallback = fallback.saturating_sub(1);
+                continue;
+            }
+            _ if fallback > 0 => continue,
+            _ => {}
+        }
         match t {
             Token::Open { name, attrs, self_closing } => match name.as_str() {
                 "w:p" => {
+                    if para.is_some() {
+                        if !self_closing {
+                            outer.push((para.take(), run));
+                            para = Some(Para::default());
+                        }
+                        continue;
+                    }
                     para = Some(Para::default());
                     pending_num = (None, 0);
                     if self_closing {
@@ -269,6 +294,20 @@ pub fn to_html(path: &Path, title: &str) -> Result<String> {
                 }
                 "w:p" => {
                     let Some(p) = para.take() else { continue };
+                    if let Some((o, r)) = outer.pop() {
+                        // A text box's paragraph joins its anchor paragraph, line by line.
+                        para = o;
+                        run = r;
+                        if let Some(op) = para.as_mut() {
+                            if !p.html.trim().is_empty() {
+                                if !op.html.is_empty() {
+                                    op.html.push_str("<br />");
+                                }
+                                op.html.push_str(&p.html);
+                            }
+                        }
+                        continue;
+                    }
                     if table_depth > 0 {
                         if cell_paras > 0 {
                             body.push_str("<br />");
@@ -335,5 +374,21 @@ mod tests {
         let html = to_html(&out, "t").unwrap();
         assert!(html.contains("<p>Hello &amp; &lt;world&gt;</p>"), "{html}");
         assert!(html.contains("Line one</p>") || html.contains("Line one<br />line two"), "{html}");
+    }
+
+    #[test]
+    fn reads_text_boxes_once() {
+        let dir = tempfile::tempdir().unwrap();
+        let out = dir.path().join("box.docx");
+        let doc = r#"<?xml version="1.0"?><w:document xmlns:w="w" xmlns:mc="mc"><w:body><w:p><w:r><w:t>Before</w:t></w:r><w:r><mc:AlternateContent><mc:Choice><w:drawing><w:txbxContent><w:p><w:r><w:t>Boxed</w:t></w:r></w:p></w:txbxContent></w:drawing></mc:Choice><mc:Fallback><w:pict><w:txbxContent><w:p><w:r><w:t>Boxed</w:t></w:r></w:p></w:txbxContent></w:pict></mc:Fallback></mc:AlternateContent></w:r><w:r><w:t> after</w:t></w:r></w:p><w:p><w:r><w:t>Next</w:t></w:r></w:p></w:body></w:document>"#;
+        let f = std::fs::File::create(&out).unwrap();
+        let mut z = zip::ZipWriter::new(f);
+        z.start_file("word/document.xml", zip::write::SimpleFileOptions::default()).unwrap();
+        std::io::Write::write_all(&mut z, doc.as_bytes()).unwrap();
+        z.finish().unwrap();
+        let html = to_html(&out, "box").unwrap();
+        assert_eq!(html.matches("Boxed").count(), 1, "{html}");
+        assert!(html.contains("<p>Before<br />Boxed after</p>"), "{html}");
+        assert!(html.contains("<p>Next</p>"), "{html}");
     }
 }

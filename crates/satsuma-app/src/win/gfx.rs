@@ -99,7 +99,17 @@ pub struct Surface {
     old: HGDIOBJ,
     bits: *mut u8,
     rt: ID2D1DCRenderTarget,
+    /// The render target lost its device (EndDraw failed); don't keep it for reuse.
+    lost: std::cell::Cell<bool>,
 }
+
+thread_local! {
+    /// Recently used surfaces. Making a DIB and a render target is the costly part of a
+    /// frame, so animations reuse them; a few sizes cover the windows that animate.
+    static POOL: std::cell::RefCell<Vec<Surface>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
+const POOL_SIZE: usize = 3;
 
 impl Drop for Surface {
     fn drop(&mut self) {
@@ -142,8 +152,44 @@ impl Surface {
             let rt = FACTORIES.with(|f| f.d2d.CreateDCRenderTarget(&props))?;
             rt.BindDC(dc, &RECT { left: 0, top: 0, right: width, bottom: height })?;
             rt.SetTextAntialiasMode(D2D1_TEXT_ANTIALIAS_MODE_GRAYSCALE);
-            Ok(Surface { width, height, dc, bitmap, old, bits: bits as *mut u8, rt })
+            Ok(Surface { width, height, dc, bitmap, old, bits: bits as *mut u8, rt, lost: std::cell::Cell::new(false) })
         }
+    }
+
+    /// Runs `f` with a `width` × `height` surface, reusing one from an earlier frame when
+    /// the size matches.
+    pub fn with<R>(width: i32, height: i32, f: impl FnOnce(&Surface) -> R) -> Option<R> {
+        let (width, height) = (width.max(1), height.max(1));
+        let reused = POOL.with(|p| {
+            let mut p = p.try_borrow_mut().ok()?;
+            let i = p.iter().position(|s| s.width == width && s.height == height)?;
+            Some(p.remove(i))
+        });
+        let surface = match reused {
+            Some(s) => s,
+            None => Surface::new(width, height).ok()?,
+        };
+        let result = f(&surface);
+        if !surface.lost.get() {
+            POOL.with(|p| {
+                if let Ok(mut p) = p.try_borrow_mut() {
+                    p.push(surface);
+                    if p.len() > POOL_SIZE {
+                        p.remove(0);
+                    }
+                }
+            });
+        }
+        Some(result)
+    }
+
+    /// Frees the kept surfaces (when nothing is animating).
+    pub fn release_pool() {
+        POOL.with(|p| {
+            if let Ok(mut p) = p.try_borrow_mut() {
+                p.clear();
+            }
+        });
     }
 
     /// Clears to transparent and draws with `f`, scaled by `scale` (DIPs → pixels).
@@ -154,9 +200,41 @@ impl Surface {
             self.rt.SetTransform(&Matrix3x2 { M11: scale, M12: 0.0, M21: 0.0, M22: scale, M31: 0.0, M32: 0.0 });
             let painter = Painter { rt: self.rt.clone().into() };
             f(&painter);
-            let _ = self.rt.EndDraw(None, None);
+            if self.rt.EndDraw(None, None).is_err() {
+                self.lost.set(true);
+            }
             let _ = GdiFlush();
         }
+    }
+
+    /// Like [`Surface::draw`], but only inside `clip` (DIPs); the rest keeps the last frame.
+    pub fn draw_clipped(&self, scale: f32, clip: (f32, f32, f32, f32), f: impl FnOnce(&Painter)) {
+        unsafe {
+            self.rt.BeginDraw();
+            self.rt.SetTransform(&Matrix3x2 { M11: scale, M12: 0.0, M21: 0.0, M22: scale, M31: 0.0, M32: 0.0 });
+            let rect = D2D_RECT_F { left: clip.0, top: clip.1, right: clip.0 + clip.2, bottom: clip.1 + clip.3 };
+            self.rt.PushAxisAlignedClip(&rect, D2D1_ANTIALIAS_MODE_ALIASED);
+            self.rt.Clear(Some(&D2D1_COLOR_F { r: 0.0, g: 0.0, b: 0.0, a: 0.0 }));
+            let painter = Painter { rt: self.rt.clone().into() };
+            f(&painter);
+            self.rt.PopAxisAlignedClip();
+            if self.rt.EndDraw(None, None).is_err() {
+                self.lost.set(true);
+            }
+            let _ = GdiFlush();
+        }
+    }
+
+    /// Copies part of the surface (pixels) to `dc` at the same position.
+    pub fn blit_rect(&self, dc: HDC, r: RECT) {
+        unsafe {
+            let _ = BitBlt(dc, r.left, r.top, r.right - r.left, r.bottom - r.top, Some(self.dc), r.left, r.top, SRCCOPY);
+        }
+    }
+
+    /// Whether the render target is still usable.
+    pub fn is_lost(&self) -> bool {
+        self.lost.get()
     }
 
     /// Shows the surface as the content of a layered window at `(x, y)` (screen pixels).

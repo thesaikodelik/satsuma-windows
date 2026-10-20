@@ -26,5 +26,5 @@ pub fn convert(
         .and_then(|o| o.parse::<f32>().ok())
         .map(|q| q / 100.0)
         .unwrap_or(0.92);
-    raster::save(&img, out, target, quality, lzw)
+    raster::save_with_profile(&img, out, target, quality, lzw, raster::icc_profile(input))
 }

@@ -7,7 +7,6 @@ use crate::{Error, Result};
 use image::RgbaImage;
 use lopdf::{dictionary, Dictionary, Document, Object, ObjectId, Stream};
 use satsuma_core::Format;
-use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 fn name(path: &Path) -> String {
@@ -75,71 +74,78 @@ fn broken_tokens(text: &str) -> f64 {
     singles as f64 / words.len() as f64
 }
 
-/// Merges whole documents in order (lopdf's documented merge procedure).
+/// Page attributes a page may inherit from the page tree above it (PDF 32000 §7.7.3.4).
+const INHERITED: [&[u8]; 4] = [b"MediaBox", b"CropBox", b"Resources", b"Rotate"];
+
+/// Copies inherited attributes onto each page, so pages keep their size, fonts and
+/// rotation when they move into another document's page tree.
+fn pin_inherited(doc: &mut Document) {
+    let pages: Vec<ObjectId> = doc.get_pages().values().copied().collect();
+    for id in pages {
+        let mut found: Vec<(Vec<u8>, Object)> = Vec::new();
+        let mut parent = doc.get_object(id).and_then(|o| o.as_dict()).and_then(|d| d.get(b"Parent")).and_then(|p| p.as_reference()).ok();
+        let mut guard = 0;
+        while let (Some(pid), true) = (parent, guard < 64) {
+            guard += 1;
+            let Ok(node) = doc.get_object(pid).and_then(|o| o.as_dict()) else { break };
+            for key in INHERITED {
+                if !found.iter().any(|(k, _)| k == key) {
+                    if let Ok(v) = node.get(key) {
+                        found.push((key.to_vec(), v.clone()));
+                    }
+                }
+            }
+            parent = node.get(b"Parent").and_then(|p| p.as_reference()).ok();
+        }
+        if let Ok(Object::Dictionary(page)) = doc.get_object_mut(id) {
+            for (key, value) in found {
+                if !page.has(&key) {
+                    page.set(key, value);
+                }
+            }
+        }
+    }
+}
+
+/// Merges whole documents in order: every page, in each document's reading order.
 pub fn merge(inputs: &[PathBuf], out: &Path) -> Result<()> {
     if inputs.is_empty() {
         return Err(Error::msg("Select PDFs to merge."));
     }
-    let mut max_id = 1;
-    let mut pages: BTreeMap<ObjectId, Object> = BTreeMap::new();
-    let mut objects: BTreeMap<ObjectId, Object> = BTreeMap::new();
     let mut merged = Document::with_version("1.7");
+    let pages_id = merged.new_object_id();
+    let mut kids: Vec<Object> = Vec::new();
+    let mut max_id = merged.max_id + 1;
     for input in inputs {
         let mut doc = open(input)?;
+        pin_inherited(&mut doc);
         doc.renumber_objects_with(max_id);
         max_id = doc.max_id + 1;
-        for (_, id) in doc.get_pages() {
-            pages.insert(id, doc.get_object(id).map_err(|_| Error::msg(format!("Could not read {}.", name(input))))?.to_owned());
-        }
-        objects.extend(doc.objects);
-    }
-    let mut catalog: Option<(ObjectId, Object)> = None;
-    let mut root_pages: Option<(ObjectId, Object)> = None;
-    for (id, object) in objects {
-        match object.type_name().unwrap_or(b"") {
-            b"Catalog" => {
-                catalog.get_or_insert((id, object));
-            }
-            b"Pages" => {
-                if let Ok(dict) = object.as_dict() {
-                    let mut dict = dict.clone();
-                    if let Some((_, ref old)) = root_pages {
-                        if let Ok(old) = old.as_dict() {
-                            dict.extend(old);
-                        }
+        // Pages by page number, so the merged order is the reading order.
+        let order: Vec<ObjectId> = doc.get_pages().values().copied().collect();
+        let page_set: std::collections::BTreeSet<ObjectId> = order.iter().copied().collect();
+        for (id, object) in std::mem::take(&mut doc.objects) {
+            match object.type_name().unwrap_or(b"") {
+                // Each document's own catalog, page tree nodes and outlines are rebuilt.
+                b"Catalog" | b"Pages" | b"Outlines" | b"Outline" => {}
+                _ if page_set.contains(&id) => {
+                    if let Object::Dictionary(mut page) = object {
+                        page.set("Parent", pages_id);
+                        merged.objects.insert(id, Object::Dictionary(page));
                     }
-                    root_pages = Some((root_pages.as_ref().map(|r| r.0).unwrap_or(id), Object::Dictionary(dict)));
+                }
+                _ => {
+                    merged.objects.insert(id, object);
                 }
             }
-            b"Page" | b"Outlines" | b"Outline" => {}
-            _ => {
-                merged.objects.insert(id, object);
-            }
         }
+        kids.extend(order.into_iter().map(Object::Reference));
     }
-    let (pages_id, pages_obj) = root_pages.ok_or_else(|| Error::msg("Could not merge the PDFs."))?;
-    for (id, object) in &pages {
-        if let Ok(dict) = object.as_dict() {
-            let mut dict = dict.clone();
-            dict.set("Parent", pages_id);
-            merged.objects.insert(*id, Object::Dictionary(dict));
-        }
-    }
-    let (catalog_id, catalog_obj) = catalog.ok_or_else(|| Error::msg("Could not merge the PDFs."))?;
-    if let Ok(dict) = pages_obj.as_dict() {
-        let mut dict = dict.clone();
-        dict.set("Count", pages.len() as u32);
-        dict.set("Kids", pages.keys().map(|id| Object::Reference(*id)).collect::<Vec<_>>());
-        merged.objects.insert(pages_id, Object::Dictionary(dict));
-    }
-    if let Ok(dict) = catalog_obj.as_dict() {
-        let mut dict = dict.clone();
-        dict.set("Pages", pages_id);
-        dict.remove(b"Outlines");
-        merged.objects.insert(catalog_id, Object::Dictionary(dict));
-    }
+    let count = kids.len() as u32;
+    merged.objects.insert(pages_id, Object::Dictionary(dictionary! { "Type" => "Pages", "Kids" => kids, "Count" => count }));
+    let catalog_id = merged.add_object(dictionary! { "Type" => "Catalog", "Pages" => pages_id });
     merged.trailer.set("Root", catalog_id);
-    merged.max_id = merged.objects.len() as u32;
+    merged.max_id = merged.objects.keys().map(|k| k.0).max().unwrap_or(0);
     merged.renumber_objects();
     merged.compress();
     save(&mut merged, out)
@@ -504,6 +510,36 @@ mod tests {
         let clean = dir.path().join("clean.pdf");
         strip_metadata(&merged, &clean).unwrap();
         assert_eq!(page_count(&clean).unwrap(), 3);
+    }
+
+    #[test]
+    fn merge_keeps_inherited_sizes_and_page_order() {
+        let dir = tempfile::tempdir().unwrap();
+        // A two-page document whose MediaBox lives on the page tree, and whose second page
+        // has the lower object id.
+        let mut doc = Document::with_version("1.7");
+        let pages_id = doc.new_object_id();
+        let content = doc.add_object(Stream::new(Dictionary::new(), b"".to_vec()));
+        let second = doc.add_object(dictionary! { "Type" => "Page", "Parent" => pages_id, "Contents" => content });
+        let first = doc.add_object(dictionary! { "Type" => "Page", "Parent" => pages_id, "Contents" => content });
+        doc.objects.insert(pages_id, Object::Dictionary(dictionary! {
+            "Type" => "Pages", "Kids" => vec![first.into(), second.into()], "Count" => 2,
+            "MediaBox" => vec![0.into(), 0.into(), 300.into(), 500.into()],
+        }));
+        let catalog = doc.add_object(dictionary! { "Type" => "Catalog", "Pages" => pages_id });
+        doc.trailer.set("Root", catalog);
+        let a = dir.path().join("tree.pdf");
+        doc.save(&a).unwrap();
+        let b = sample_pdf(dir.path(), "b.pdf", [0, 0, 255, 255]);
+        let merged = dir.path().join("m.pdf");
+        merge(&[a, b], &merged).unwrap();
+        let m = Document::load(&merged).unwrap();
+        let pages: Vec<ObjectId> = m.get_pages().values().copied().collect();
+        assert_eq!(pages.len(), 3);
+        let media = |id: ObjectId| m.get_object(id).unwrap().as_dict().unwrap().get(b"MediaBox").unwrap().as_array().unwrap().iter().map(|v| v.as_float().unwrap() as i64).collect::<Vec<_>>();
+        assert_eq!(media(pages[0]), vec![0, 0, 300, 500]);
+        assert_eq!(media(pages[1]), vec![0, 0, 300, 500]);
+        assert_eq!(media(pages[2]), vec![0, 0, 200, 100]);
     }
 
     #[test]

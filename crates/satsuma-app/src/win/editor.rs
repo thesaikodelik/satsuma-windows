@@ -776,10 +776,12 @@ impl Handler for Messages {
                     if let Ok(mut e) = self.editor.try_borrow_mut() {
                         e.scale = scale_of(hwnd);
                     }
-                    if let (Ok(surface), Ok(e)) = (Surface::new(r.right, r.bottom), self.editor.try_borrow()) {
+                    if let Ok(e) = self.editor.try_borrow() {
                         let pal = Palette::current();
-                        surface.draw(scale_of(hwnd), |p| e.paint(p, &pal));
-                        surface.blit(dc, 0, 0);
+                        Surface::with(r.right, r.bottom, |surface| {
+                            surface.draw(scale_of(hwnd), |p| e.paint(p, &pal));
+                            surface.blit(dc, 0, 0);
+                        });
                     }
                     let _ = EndPaint(hwnd, &ps);
                 }

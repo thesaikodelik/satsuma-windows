@@ -319,15 +319,16 @@ fn glass(s: &mut State) {
 
 fn render(hwnd: HWND, s: &State) {
     let px = size_px(s.scale);
-    let Ok(surface) = Surface::new(px, px) else { return };
-    if s.probing {
-        surface.draw(1.0, |_| {});
-        surface.fill_transparent(1);
-    } else {
-        surface.draw(s.scale, |p| paint(p, &s.model, &s.palette, s.behind.as_ref(), s.scale));
-    }
-    let (x, y) = s.origin();
-    surface.present(hwnd, x, y, 255);
+    Surface::with(px, px, |surface| {
+        if s.probing {
+            surface.draw(1.0, |_| {});
+            surface.fill_transparent(1);
+        } else {
+            surface.draw(s.scale, |p| paint(p, &s.model, &s.palette, s.behind.as_ref(), s.scale));
+        }
+        let (x, y) = s.origin();
+        surface.present(hwnd, x, y, 255);
+    });
 }
 
 /// Changes the highlighted petal; plays the tick when enabled.
@@ -665,6 +666,11 @@ impl WheelWindow {
     pub fn selected_item(&self) -> Option<WheelItem> {
         let s = self.state.try_borrow().ok()?;
         s.model.selected.and_then(|i| s.model.items.get(i).copied())
+    }
+
+    /// Shown at all, probe included.
+    pub fn is_visible(&self) -> bool {
+        self.state.try_borrow().map(|s| s.visible).unwrap_or(true)
     }
 
     pub fn is_open(&self) -> bool {

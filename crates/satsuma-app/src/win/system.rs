@@ -132,18 +132,39 @@ fn global_from(bytes: &[u8]) -> Option<HGLOBAL> {
     }
 }
 
-fn with_clipboard(f: impl FnOnce()) {
+/// The window that owns what Satsuma puts on the clipboard (the app's hidden main window).
+static CLIPBOARD_OWNER: std::sync::atomic::AtomicIsize = std::sync::atomic::AtomicIsize::new(0);
+
+pub fn set_clipboard_owner(hwnd: HWND) {
+    CLIPBOARD_OWNER.store(hwnd.0 as isize, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Replaces the clipboard's contents with what `f` puts there; `f` reports success.
+/// `EmptyClipboard` needs an owner window, or `SetClipboardData` fails.
+fn with_clipboard(f: impl FnOnce() -> bool) -> bool {
+    let owner = HWND(CLIPBOARD_OWNER.load(std::sync::atomic::Ordering::Relaxed) as *mut _);
     unsafe {
         // Another app may hold the clipboard for a moment.
         for _ in 0..10 {
-            if OpenClipboard(None).is_ok() {
-                let _ = EmptyClipboard();
-                f();
+            if OpenClipboard(Some(owner)).is_ok() {
+                let ok = EmptyClipboard().is_ok() && f();
                 let _ = CloseClipboard();
-                return;
+                return ok;
             }
             std::thread::sleep(std::time::Duration::from_millis(20));
         }
+    }
+    false
+}
+
+/// Puts a block of memory on the clipboard; the clipboard owns it on success.
+unsafe fn set_data(format: u32, bytes: &[u8]) -> bool {
+    let Some(mem) = global_from(bytes) else { return false };
+    if SetClipboardData(format, Some(HANDLE(mem.0))).is_ok() {
+        true
+    } else {
+        let _ = windows::Win32::Foundation::GlobalFree(Some(mem));
+        false
     }
 }
 
@@ -178,30 +199,22 @@ impl EncodeWide for std::ffi::OsStr {
 }
 
 /// Files on the clipboard, ready to paste in File Explorer.
-pub fn copy_files(paths: &[PathBuf]) {
+pub fn copy_files(paths: &[PathBuf]) -> bool {
     with_clipboard(|| unsafe {
-        if let Some(mem) = global_from(&hdrop_bytes(paths)) {
-            let _ = SetClipboardData(CF_HDROP.0 as u32, Some(HANDLE(mem.0)));
-        }
+        let files = set_data(CF_HDROP.0 as u32, &hdrop_bytes(paths));
         let effect = RegisterClipboardFormatW(&HSTRING::from("Preferred DropEffect"));
-        if let Some(mem) = global_from(&DROPEFFECT_COPY.0.to_le_bytes()) {
-            let _ = SetClipboardData(effect, Some(HANDLE(mem.0)));
-        }
-    });
+        files && set_data(effect, &DROPEFFECT_COPY.0.to_le_bytes())
+    })
 }
 
 /// Full paths as text, one per line.
-pub fn copy_paths(paths: &[PathBuf]) {
+pub fn copy_paths(paths: &[PathBuf]) -> bool {
     let text = satsuma_core::actions::paths_as_text(paths).replace('\n', "\r\n");
     let mut wide: Vec<u8> = Vec::new();
     for u in text.encode_utf16().chain(std::iter::once(0)) {
         wide.extend_from_slice(&u.to_le_bytes());
     }
-    with_clipboard(|| unsafe {
-        if let Some(mem) = global_from(&wide) {
-            let _ = SetClipboardData(CF_UNICODETEXT.0 as u32, Some(HANDLE(mem.0)));
-        }
-    });
+    with_clipboard(|| unsafe { set_data(CF_UNICODETEXT.0 as u32, &wide) })
 }
 
 // ------------------------------------------------------------------ terminals
@@ -340,6 +353,10 @@ pub fn move_into(paths: &[PathBuf], dest: &Path) -> Vec<String> {
         if src.parent() == Some(dest) {
             continue;
         }
+        if src.is_dir() && dest.starts_with(src) {
+            errors.push(format!("Couldn't move {name} into a folder inside it."));
+            continue;
+        }
         let (base, ext) = if src.is_dir() {
             (name.clone(), None)
         } else {
@@ -348,8 +365,14 @@ pub fn move_into(paths: &[PathBuf], dest: &Path) -> Vec<String> {
             (stem, if ext.is_empty() { None } else { Some(ext) })
         };
         let target = dest.join(first_free(&base, ext.as_deref(), &|n| dest.join(n).exists()));
-        if std::fs::rename(src, &target).is_ok() {
-            continue;
+        match std::fs::rename(src, &target) {
+            Ok(()) => continue,
+            // ERROR_NOT_SAME_DEVICE: a different drive, so copy and remove below.
+            Err(e) if e.raw_os_error() == Some(17) => {}
+            Err(e) => {
+                errors.push(format!("Couldn't move {name}: {e}"));
+                continue;
+            }
         }
         // Different drive: copy, then remove the original.
         match copy_recursive(src, &target) {

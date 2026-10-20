@@ -166,12 +166,14 @@ impl Handler for Messages {
                     let dc = BeginPaint(hwnd, &mut ps);
                     let mut r = RECT::default();
                     let _ = GetClientRect(hwnd, &mut r);
-                    if let (Ok(surface), Ok(s)) = (Surface::new(r.right, r.bottom), self.state.try_borrow()) {
+                    if let Ok(s) = self.state.try_borrow() {
                         let sc = scale_of(hwnd);
                         let size = (r.right as f32 / sc, r.bottom as f32 / sc);
                         let pal = Palette::current();
-                        surface.draw(sc, |p| paint(p, &s, size, &pal));
-                        surface.blit(dc, 0, 0);
+                        Surface::with(r.right, r.bottom, |surface| {
+                            surface.draw(sc, |p| paint(p, &s, size, &pal));
+                            surface.blit(dc, 0, 0);
+                        });
                     }
                     let _ = EndPaint(hwnd, &ps);
                 }

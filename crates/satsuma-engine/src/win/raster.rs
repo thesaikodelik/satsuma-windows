@@ -4,7 +4,7 @@
 use super::wic;
 use crate::process::Cancel;
 use crate::{Error, Result};
-use image::{DynamicImage, ImageDecoder, ImageReader, RgbaImage};
+use image::{DynamicImage, ImageDecoder, ImageEncoder, ImageReader, RgbaImage};
 use satsuma_core::Format;
 use std::io::BufWriter;
 use std::path::Path;
@@ -81,6 +81,14 @@ pub fn load(path: &Path) -> Result<RgbaImage> {
     }
 }
 
+/// The embedded colour profile, when the image crate can read the file.
+pub fn icc_profile(path: &Path) -> Option<Vec<u8>> {
+    let reader = ImageReader::open(path).ok()?.with_guessed_format().ok()?;
+    reader.format()?;
+    let mut decoder = reader.into_decoder().ok()?;
+    decoder.icc_profile().ok().flatten().filter(|p| !p.is_empty())
+}
+
 /// Fits the longest edge within `max_edge` (never enlarges).
 pub fn fit(img: RgbaImage, max_edge: Option<u32>) -> RgbaImage {
     let Some(px) = max_edge else { return img };
@@ -118,14 +126,27 @@ fn encode_err(e: impl std::fmt::Display) -> Error {
 
 /// Writes `img` as `format`. `quality` is 0–1 for lossy formats; `lzw` compresses TIFFs.
 pub fn save(img: &RgbaImage, path: &Path, format: Format, quality: f32, lzw: bool) -> Result<()> {
+    save_with_profile(img, path, format, quality, lzw, None)
+}
+
+/// [`save`], embedding `icc` (the source's colour profile) in JPEG and PNG output so
+/// wide-gamut photos keep their colours, as sips does.
+pub fn save_with_profile(img: &RgbaImage, path: &Path, format: Format, quality: f32, lzw: bool, icc: Option<Vec<u8>>) -> Result<()> {
     use image::codecs::*;
     match format {
         Format::Jpg => {
             let q = (quality * 100.0).round().clamp(1.0, 100.0) as u8;
-            jpeg::JpegEncoder::new_with_quality(create(path)?, q).encode_image(&flatten(img)).map_err(encode_err)?;
+            let mut enc = jpeg::JpegEncoder::new_with_quality(create(path)?, q);
+            if let Some(icc) = icc {
+                let _ = enc.set_icc_profile(icc);
+            }
+            enc.encode_image(&flatten(img)).map_err(encode_err)?;
         }
         Format::Png => {
-            let enc = png::PngEncoder::new_with_quality(create(path)?, png::CompressionType::Best, png::FilterType::Adaptive);
+            let mut enc = png::PngEncoder::new_with_quality(create(path)?, png::CompressionType::Best, png::FilterType::Adaptive);
+            if let Some(icc) = icc {
+                let _ = enc.set_icc_profile(icc);
+            }
             if has_alpha(img) {
                 img.write_with_encoder(enc).map_err(encode_err)?;
             } else {

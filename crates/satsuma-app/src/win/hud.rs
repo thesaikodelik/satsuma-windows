@@ -80,10 +80,11 @@ fn paint(p: &Painter, m: &HudModel, pal: &Palette, behind: Option<&(Vec<u8>, u32
 
 fn render(hwnd: HWND, s: &State) {
     let (w, h) = (((WIDTH + MARGIN * 2.0) * s.scale).ceil() as i32, ((HEIGHT + MARGIN * 2.0) * s.scale).ceil() as i32);
-    let Ok(surface) = Surface::new(w, h) else { return };
     let pal = Palette::current();
-    surface.draw(s.scale, |p| paint(p, &s.model, &pal, s.behind.as_ref()));
-    surface.present(hwnd, s.origin.0, s.origin.1, 255);
+    Surface::with(w, h, |surface| {
+        surface.draw(s.scale, |p| paint(p, &s.model, &pal, s.behind.as_ref()));
+        surface.present(hwnd, s.origin.0, s.origin.1, 255);
+    });
 }
 
 /// Liquid Glass: a blurred copy of what is behind the panel, taken as it appears.

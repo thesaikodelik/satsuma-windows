@@ -20,6 +20,7 @@ enum Dest {
     Text,
     Skip,
     ColorTable,
+    FontTable,
 }
 
 #[derive(Clone, Copy)]
@@ -28,6 +29,8 @@ struct State {
     dest: Dest,
     /// Characters to skip after `\uN` (`\ucN`).
     uc: usize,
+    /// The code page `\'xx` bytes are in: the current font's charset, else `\ansicpg`.
+    cp: u32,
 }
 
 /// Destinations whose contents are never shown.
@@ -50,6 +53,46 @@ pub fn cp1252_char(b: u8) -> char {
         0x80..=0x9F => char::from_u32(HIGH[(b - 0x80) as usize] as u32).unwrap_or('?'),
         _ => b as char,
     }
+}
+
+/// The code page of a font's `\fcharsetN`; `None` means the document default.
+fn charset_codepage(charset: i32) -> Option<u32> {
+    Some(match charset {
+        77 => 10000,
+        128 => 932,
+        129 => 949,
+        130 => 1361,
+        134 => 936,
+        136 => 950,
+        161 => 1253,
+        162 => 1254,
+        163 => 1258,
+        177 => 1255,
+        178 => 1256,
+        186 => 1257,
+        204 => 1251,
+        222 => 874,
+        238 => 1250,
+        254 => 437,
+        _ => return None,
+    })
+}
+
+/// Decodes bytes in a Windows code page, falling back to Windows-1252.
+fn decode(cp: u32, bytes: &[u8]) -> String {
+    use windows::Win32::Globalization::{MultiByteToWideChar, MULTI_BYTE_TO_WIDE_CHAR_FLAGS};
+    if cp != 1252 && cp != 0 {
+        unsafe {
+            let n = MultiByteToWideChar(cp, MULTI_BYTE_TO_WIDE_CHAR_FLAGS(0), bytes, None);
+            if n > 0 {
+                let mut wide = vec![0u16; n as usize];
+                if MultiByteToWideChar(cp, MULTI_BYTE_TO_WIDE_CHAR_FLAGS(0), bytes, Some(&mut wide)) > 0 {
+                    return String::from_utf16_lossy(&wide);
+                }
+            }
+        }
+    }
+    bytes.iter().map(|&b| cp1252_char(b)).collect()
 }
 
 struct Writer {
@@ -109,15 +152,30 @@ impl Writer {
 pub fn to_html_body(rtf: &[u8]) -> String {
     let mut w = Writer { colors: Vec::new(), pending_color: (0, 0, 0), paragraphs: Vec::new(), current: String::new(), open: None };
     let mut stack: Vec<State> = Vec::new();
-    let mut st = State { fmt: Fmt::default(), dest: Dest::Text, uc: 1 };
+    let mut st = State { fmt: Fmt::default(), dest: Dest::Text, uc: 1, cp: 1252 };
+    // Font number → code page, from the font table.
+    let mut fonts: std::collections::HashMap<i32, u32> = std::collections::HashMap::new();
+    let mut font_entry = 0i32;
+    let mut default_cp = 1252u32;
+    // `\'xx` bytes waiting to be decoded together (double-byte code pages split characters).
+    let mut bytes: Vec<u8> = Vec::new();
     let mut skip_chars = 0usize;
     let mut group_start = false;
     let mut ignorable = false;
     let mut text = String::new();
     let mut i = 0;
 
+    macro_rules! settle {
+        () => {
+            if !bytes.is_empty() {
+                text.push_str(&decode(st.cp, &bytes));
+                bytes.clear();
+            }
+        };
+    }
     macro_rules! flush {
         () => {
+            settle!();
             if !text.is_empty() {
                 if st.dest == Dest::Text {
                     w.text(st.fmt, &text);
@@ -129,6 +187,10 @@ pub fn to_html_body(rtf: &[u8]) -> String {
 
     while i < rtf.len() {
         let c = rtf[i];
+        let byte_escape = c == b'\\' && rtf.get(i + 1) == Some(&b'\'');
+        if !byte_escape && !matches!(c, b'\r' | b'\n') && !(c >= 0x80 && st.dest == Dest::Text) {
+            settle!();
+        }
         match c {
             b'{' => {
                 flush!();
@@ -182,6 +244,9 @@ pub fn to_html_body(rtf: &[u8]) -> String {
                         if word == "colortbl" {
                             flush!();
                             st.dest = Dest::ColorTable;
+                        } else if word == "fonttbl" && !ignorable {
+                            flush!();
+                            st.dest = Dest::FontTable;
                         } else if !(ignorable && word == "shppict") {
                             flush!();
                             st.dest = Dest::Skip;
@@ -196,6 +261,38 @@ pub fn to_html_body(rtf: &[u8]) -> String {
                     }
                     let on = param.map_or(true, |p| p != 0);
                     match word {
+                        "ansicpg" => {
+                            if let Some(cp) = param.filter(|p| *p > 0) {
+                                default_cp = cp as u32;
+                                st.cp = default_cp;
+                            }
+                        }
+                        "f" if st.dest == Dest::FontTable => font_entry = param.unwrap_or(0),
+                        "fcharset" if st.dest == Dest::FontTable => {
+                            if let Some(cp) = param.and_then(charset_codepage) {
+                                fonts.insert(font_entry, cp);
+                            }
+                        }
+                        "cpg" if st.dest == Dest::FontTable => {
+                            if let Some(cp) = param.filter(|p| *p > 0) {
+                                fonts.insert(font_entry, cp as u32);
+                            }
+                        }
+                        "f" => {
+                            flush!();
+                            st.cp = param.and_then(|f| fonts.get(&f).copied()).unwrap_or(default_cp);
+                        }
+                        "cell" | "nestcell" => text.push('\t'),
+                        "row" | "nestrow" => {
+                            flush!();
+                            if st.dest == Dest::Text {
+                                w.close_run();
+                                if w.current.ends_with('\t') {
+                                    w.current.pop();
+                                }
+                                w.end_paragraph();
+                            }
+                        }
                         "par" | "sect" => {
                             flush!();
                             if st.dest == Dest::Text {
@@ -304,7 +401,7 @@ pub fn to_html_body(rtf: &[u8]) -> String {
                             if skip_chars > 0 {
                                 skip_chars -= 1;
                             } else if let Some(b) = hex {
-                                text.push(cp1252_char(b));
+                                bytes.push(b);
                             }
                         }
                         b'\\' | b'{' | b'}' => text.push(n as char),
@@ -338,13 +435,13 @@ pub fn to_html_body(rtf: &[u8]) -> String {
                     w.pending_color = (0, 0, 0);
                 }
             }
-            Dest::Skip => {}
+            Dest::Skip | Dest::FontTable => {}
             Dest::Text => {
                 // Bytes outside escapes are ASCII in valid RTF; decode leniently.
                 if c < 0x80 {
                     text.push(c as char);
                 } else {
-                    text.push(cp1252_char(c));
+                    bytes.push(c);
                 }
             }
         }
@@ -388,6 +485,21 @@ mod tests {
         assert!(html.contains("end<br />next"), "{html}");
         assert!(html.contains("<p>link</p>"), "{html}");
         assert!(!html.contains("Helvetica") && !html.contains("Riched") && !html.contains("HYPERLINK"), "{html}");
+    }
+
+    #[test]
+    fn code_pages_and_tables() {
+        // Persian in Windows-1256 via the font's charset; Cyrillic via \ansicpg.
+        let rtf = br"{\rtf1\ansi\ansicpg1251{\fonttbl{\f0\fnil Arial;}{\f1\fnil\fcharset178 Tahoma;}}\f0 \'cf\'f0\'e8\par\f1 \'d3\'e1\'c7\'e3\par}";
+        let html = to_html_body(rtf);
+        assert!(html.contains("<p>\u{41f}\u{440}\u{438}</p>"), "{html}");
+        assert!(html.contains("<p>\u{633}\u{644}\u{627}\u{645}</p>"), "{html}");
+        // Shift-JIS double-byte characters.
+        let rtf = br"{\rtf1\ansi\ansicpg932 \'93\'fa\'96\'7b\par}";
+        assert!(to_html_body(rtf).contains("\u{65e5}\u{672c}"));
+        // Table cells become tab-separated lines.
+        let rtf = br"{\rtf1\ansi \trowd\cellx1000\cellx2000 \intbl A\cell B\cell\row \intbl C\cell D\cell\row}";
+        assert_eq!(to_html_body(rtf), "<p>A&emsp;B</p>\n<p>C&emsp;D</p>\n");
     }
 
     #[test]

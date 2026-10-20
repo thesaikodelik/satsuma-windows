@@ -39,6 +39,9 @@ const CMD_SETTINGS: u32 = 6;
 
 const WM_TRAY: u32 = WM_APP + 1;
 const TIMER_TICK: usize = 1;
+/// 10 ms rounds to the system's ~15.6 ms tick: about 64 frames a second.
+const FAST_TICK_MS: u32 = 10;
+const IDLE_TICK_MS: u32 = 50;
 /// How long the probe waits for a drag to reach it.
 const PROBE_TIMEOUT: Duration = Duration::from_millis(650);
 /// Probes per mouse press, so a long text selection with Shift held stays cheap.
@@ -166,6 +169,8 @@ struct Controller {
     deferred: Vec<Deferred>,
     /// Debug builds: quit once the queue drains (used by SATSUMA_SELFTEST_DROP).
     exit_when_idle: bool,
+    /// The tick's current period: fast while something can happen, slow when idle.
+    tick_ms: u32,
 }
 
 thread_local! {
@@ -295,6 +300,26 @@ impl Controller {
             if Instant::now() >= at {
                 self.hud.hide();
                 self.hud_hide_at = None;
+            }
+        }
+        // Idle (no button held, nothing on screen or running), 20 checks a second are enough
+        // to catch the start of a drag; keep the full frame rate only while it matters.
+        let busy = system::left_mouse_down()
+            || !matches!(self.drag, Drag::Idle)
+            || self.wheel.is_visible()
+            || self.keyboard_files.is_some()
+            || self.hud_hide_at.is_some()
+            || self.wheel_hide_at.is_some()
+            || self.job.is_some()
+            || !self.queue.is_empty()
+            || self.estimates.is_some();
+        let ms = if busy { FAST_TICK_MS } else { IDLE_TICK_MS };
+        if ms != self.tick_ms {
+            self.tick_ms = ms;
+            unsafe { SetTimer(Some(self.main), TIMER_TICK, ms, None) };
+            if !busy {
+                // The wheel's and HUD's frames aren't needed until the next gesture.
+                super::gfx::Surface::release_pool();
             }
         }
     }
@@ -488,12 +513,18 @@ impl Controller {
         let noun = if n == 1 { "item".to_string() } else { format!("{n} items") };
         match action {
             Action::Copy => {
-                system::copy_files(&files);
-                self.flash(at, "Copied", &format!("{noun} ready to paste in File Explorer"));
+                if system::copy_files(&files) {
+                    self.flash(at, "Copied", &format!("{noun} ready to paste in File Explorer"));
+                } else {
+                    self.flash(at, "Couldn't copy", "Another app is using the clipboard. Try again.");
+                }
             }
             Action::CopyPath => {
-                system::copy_paths(&files);
-                self.flash(at, "Copied Path", &if n == 1 { files[0].display().to_string() } else { format!("{n} paths, one per line") });
+                if system::copy_paths(&files) {
+                    self.flash(at, "Copied Path", &if n == 1 { files[0].display().to_string() } else { format!("{n} paths, one per line") });
+                } else {
+                    self.flash(at, "Couldn't copy", "Another app is using the clipboard. Try again.");
+                }
             }
             Action::Terminal => {
                 if let Err(e) = system::open_terminal(&files[0], self.settings.terminal) {
@@ -747,7 +778,13 @@ impl Handler for Main {
             WM_SETTINGCHANGE => {
                 // Light/dark switches: recolour the tray icon.
                 with_controller(|c| {
-                    c.tray.icon = tray_icon_for_theme();
+                    // Swap in an icon for the new theme and free the old one.
+                    let old = std::mem::replace(&mut c.tray.icon, tray_icon_for_theme());
+                    if !old.is_invalid() {
+                        unsafe {
+                            let _ = DestroyIcon(old);
+                        }
+                    }
                     let tip = c.tip();
                     c.tray.update(&tip);
                 });
@@ -817,6 +854,7 @@ pub fn run() {
     super::theme::set_appearance(settings.appearance);
     super::theme::set_transparency(settings.transparency);
     let tray = Tray { hwnd: main, icon: tray_icon_for_theme() };
+    system::set_clipboard_owner(main);
     let mut controller = Controller {
         settings,
         settings_path,
@@ -840,6 +878,7 @@ pub fn run() {
         queue: Vec::new(),
         deferred: Vec::new(),
         exit_when_idle: false,
+        tick_ms: FAST_TICK_MS,
     };
     #[cfg(debug_assertions)]
     if let Some(event) = selftest_drop() {
@@ -867,8 +906,7 @@ pub fn run() {
     CONTROLLER.with(|c| *c.borrow_mut() = Some(controller));
 
     unsafe {
-        // 10 ms rounds to the system's ~15.6 ms tick: about 64 frames a second.
-        SetTimer(Some(main), TIMER_TICK, 10, None);
+        SetTimer(Some(main), TIMER_TICK, FAST_TICK_MS, None);
         let mut msg = MSG::default();
         while GetMessageW(&mut msg, None, 0, 0).as_bool() {
             if super::editor::translate_dialog_message(&msg) {

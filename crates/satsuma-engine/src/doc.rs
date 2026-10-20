@@ -202,8 +202,7 @@ pub fn monospace_to_pdf(text: &str, out: &Path, tmp: &Path) -> Result<()> {
         "<pre style=\"font-family: Consolas, 'Courier New', monospace; font-size: {size:.1}pt; margin: 0\">{}</pre>",
         escape(text)
     );
-    let env = Env::discover();
-    crate::win::browser::print_to_pdf(&env, &document("Table", &body), out, tmp, &Cancel::new())
+    crate::win::browser::print_to_pdf(crate::win::env(), &document("Table", &body), out, tmp, &Cancel::new())
 }
 
 /// Writes HTML as a paginated PDF (HTML → RTF via textutil → CoreText).

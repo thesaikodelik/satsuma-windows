@@ -198,17 +198,44 @@ struct DocxWriter {
     para_props: String,
     pictures: Vec<Picture>,
     links: Vec<String>,
+    /// The open link, if any. A hyperlink can't cross paragraphs in Word, so it is closed
+    /// at the end of each paragraph and reopened in the next.
+    link: Option<usize>,
 }
 
 impl DocxWriter {
     fn ensure_para(&mut self) -> &mut String {
         if self.para.is_none() {
-            self.para = Some(String::new());
+            self.para = Some(match self.link {
+                Some(id) => format!("<w:hyperlink r:id=\"rIdLink{id}\">"),
+                None => String::new(),
+            });
         }
         self.para.as_mut().unwrap()
     }
 
+    fn open_link(&mut self, href: String) {
+        self.close_link();
+        self.links.push(href);
+        let id = self.links.len();
+        self.ensure_para().push_str(&format!("<w:hyperlink r:id=\"rIdLink{id}\">"));
+        self.link = Some(id);
+    }
+
+    fn close_link(&mut self) {
+        if self.link.take().is_some() {
+            if let Some(para) = self.para.as_mut() {
+                para.push_str("</w:hyperlink>");
+            }
+        }
+    }
+
     fn end_para(&mut self) {
+        if self.link.is_some() {
+            if let Some(para) = self.para.as_mut() {
+                para.push_str("</w:hyperlink>");
+            }
+        }
         if let Some(runs) = self.para.take() {
             self.body.push_str(&format!("<w:p>{}{runs}</w:p>", if self.para_props.is_empty() { String::new() } else { format!("<w:pPr>{}</w:pPr>", self.para_props) }));
         }
@@ -305,7 +332,7 @@ fn heading_styles() -> String {
 
 /// Writes HTML as a Word document with real headings, lists, tables, links and pictures.
 pub fn html_to_docx(html: &str, out: &Path, base: Option<&Path>) -> Result<()> {
-    let mut w = DocxWriter { body: String::new(), para: None, para_props: String::new(), pictures: Vec::new(), links: Vec::new() };
+    let mut w = DocxWriter { body: String::new(), para: None, para_props: String::new(), pictures: Vec::new(), links: Vec::new(), link: None };
     let mut fmt_stack: Vec<(String, Inline)> = Vec::new();
     let mut fmt = Inline::default();
     let mut hidden = 0usize;
@@ -337,9 +364,7 @@ pub fn html_to_docx(html: &str, out: &Path, base: Option<&Path>) -> Result<()> {
                     "sub" => push_fmt(&mut fmt, |f| f.sub = true),
                     "a" => {
                         if let Some(href) = attr(attrs, "href").filter(|h| h.contains("://") || h.starts_with("mailto:")) {
-                            w.links.push(href);
-                            let id = w.links.len();
-                            w.ensure_para().push_str(&format!("<w:hyperlink r:id=\"rIdLink{id}\">"));
+                            w.open_link(href);
                             link_open = true;
                             push_fmt(&mut fmt, |f| f.underline = true);
                         }
@@ -424,7 +449,7 @@ pub fn html_to_docx(html: &str, out: &Path, base: Option<&Path>) -> Result<()> {
                 }
                 match n {
                     "a" if link_open => {
-                        w.ensure_para().push_str("</w:hyperlink>");
+                        w.close_link();
                         link_open = false;
                     }
                     "h1" | "h2" | "h3" | "h4" | "h5" | "h6" | "li" | "dt" | "dd" | "figcaption" => {
@@ -573,6 +598,11 @@ mod tests {
         assert!(back.contains("<strong>bold</strong>"), "{back}");
         assert!(back.contains("&amp;"), "{back}");
         assert!(back.contains("<a href=\"https://x.org\"><u>link</u></a>"), "{back}");
+        // A link wrapping two paragraphs stays well-formed.
+        let out2 = dir.path().join("b.docx");
+        html_to_docx("<a href=\"https://y.org\"><p>one</p><p>two</p></a><p>after</p>", &out2, None).unwrap();
+        let back2 = super::super::docx_read::to_html(&out2, "b").unwrap();
+        assert!(back2.contains("one") && back2.contains("two") && back2.contains("after"), "{back2}");
         assert!(back.contains("<td><strong>A</strong></td><td>B</td>"), "{back}");
         assert!(back.contains("l1") && back.contains("l2"), "{back}");
         assert!(back.contains("item"), "{back}");
