@@ -44,6 +44,8 @@ pub struct WheelModel {
     pub phase: f32,
     /// The liquid highlight (physics), chasing the selected petal.
     pub liquid: Liquid,
+    /// Drawn on a window that is glass already (the Settings preview).
+    pub on_glass_window: bool,
 }
 
 impl WheelModel {
@@ -60,6 +62,7 @@ impl WheelModel {
             estimating: false,
             phase: 0.0,
             liquid: Liquid::default(),
+            on_glass_window: false,
         }
     }
 }
@@ -172,7 +175,10 @@ pub fn paint(p: &Painter, m: &WheelModel, pal: &Palette, behind: Option<&Behind>
         let size = WHEEL_VIEW_SIZE as f32;
         p.fill_round_rect_image(disc, backdrop, (0.0, 0.0, size, size), px, *w, *h);
     }
-    p.fill_circle(c, c, backdrop, pal.backdrop);
+    // On a glass window (the Settings preview) the window's tint is the disc's tint already.
+    if !(pal.glass && m.on_glass_window) {
+        p.fill_circle(c, c, backdrop, pal.backdrop);
+    }
     if pal.glass {
         // 30nama's drawn glass: a faint body, a glare from above and a lit rim.
         p.fill_circle(c, c, backdrop, white(0.02));

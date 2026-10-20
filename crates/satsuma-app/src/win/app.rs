@@ -269,6 +269,7 @@ impl Controller {
             estimating: false,
             phase: 0.0,
             liquid: Default::default(),
+            on_glass_window: false,
         }
     }
 

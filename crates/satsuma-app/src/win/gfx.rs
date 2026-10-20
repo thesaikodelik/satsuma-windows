@@ -518,8 +518,51 @@ pub fn capsule_sdf(x: f32, y: f32, r: (f32, f32, f32, f32)) -> f32 {
     outside + qx.max(qy).min(0.0) - rad
 }
 
-/// What is on screen in a rectangle (pixels), as straight RGBA.
+/// The drag image Windows shows under the pointer during a drag (class `SysDragImage`).
+fn drag_images() -> Vec<HWND> {
+    use windows::Win32::UI::WindowsAndMessaging::{EnumWindows, GetClassNameW, IsWindowVisible};
+    unsafe extern "system" fn each(hwnd: HWND, list: windows::Win32::Foundation::LPARAM) -> windows::core::BOOL {
+        let mut class = [0u16; 32];
+        let n = GetClassNameW(hwnd, &mut class) as usize;
+        if IsWindowVisible(hwnd).as_bool() && String::from_utf16_lossy(&class[..n]) == "SysDragImage" {
+            (*(list.0 as *mut Vec<HWND>)).push(hwnd);
+        }
+        true.into()
+    }
+    let mut list: Vec<HWND> = Vec::new();
+    unsafe {
+        let _ = EnumWindows(Some(each), windows::Win32::Foundation::LPARAM(&mut list as *mut _ as isize));
+    }
+    list
+}
+
+/// What is on screen in a rectangle (pixels), as straight RGBA, without the drag image
+/// (which would otherwise be frozen into the glass).
 pub fn capture_screen(x: i32, y: i32, w: i32, h: i32) -> Option<Vec<u8>> {
+    use windows::Win32::UI::WindowsAndMessaging::{ShowWindow, SW_HIDE, SW_SHOWNA};
+    let hidden = drag_images();
+    for hwnd in &hidden {
+        unsafe {
+            let _ = ShowWindow(*hwnd, SW_HIDE);
+        }
+    }
+    if !hidden.is_empty() {
+        // Let the compositor present a frame without it.
+        unsafe {
+            let _ = windows::Win32::Graphics::Dwm::DwmFlush();
+            let _ = windows::Win32::Graphics::Dwm::DwmFlush();
+        }
+    }
+    let pixels = capture_rect(x, y, w, h);
+    for hwnd in &hidden {
+        unsafe {
+            let _ = ShowWindow(*hwnd, SW_SHOWNA);
+        }
+    }
+    pixels
+}
+
+fn capture_rect(x: i32, y: i32, w: i32, h: i32) -> Option<Vec<u8>> {
     if w <= 0 || h <= 0 {
         return None;
     }

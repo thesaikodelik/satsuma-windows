@@ -1158,6 +1158,7 @@ impl EditorWindow {
             .collect();
         let mut preview = WheelModel::new(WheelMode::Conversions, items);
         preview.selected = Some(1);
+        preview.on_glass_window = true;
         preview.settle_liquid();
         preview.hub = vec!["2.4 MB".into()];
         preview.estimates.insert(WheelItem::Convert(Format::Webp), Some("1.1 MB".into()));

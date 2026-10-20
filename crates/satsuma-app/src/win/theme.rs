@@ -31,9 +31,21 @@ pub fn appearance() -> Appearance {
     a
 }
 
-/// How strongly Liquid blurs what is behind it (DIPs): clearer glass blurs less.
+/// How strongly Liquid blurs what is behind it (DIPs). Constant: transparency changes the
+/// tint over the glass, never the frost itself.
 pub fn blur_sigma() -> f32 {
-    3.0 + 12.0 * (1.0 - transparency())
+    10.0
+}
+
+/// Maps transparency (0–1) through today's look at 0.45: `opaque` at 0, `default` at 0.45,
+/// `clearest` at 1.
+fn ramp(t: f32, opaque: f32, default: f32, clearest: f32) -> f32 {
+    let t = t.clamp(0.0, 1.0);
+    if t <= 0.45 {
+        opaque + (default - opaque) * (t / 0.45)
+    } else {
+        default + (clearest - default) * ((t - 0.45) / 0.55)
+    }
 }
 
 /// Tangerine orange, as in the macOS app.
@@ -63,12 +75,11 @@ impl Palette {
     /// Solid, light or dark. Transparency fades the wheel and panel surfaces (no blur):
     /// opaque at 0, today's look at 45, faint at 100.
     pub fn solid(dark: bool, transparency: f32) -> Palette {
-        let t = transparency.clamp(0.0, 1.0);
-        let o = if t <= 0.45 { 1.0 - t * (0.2 / 0.45) } else { 0.8 - (t - 0.45) * (0.65 / 0.55) };
+        // Without blur, see-through gets busy fast: petals stay at least 60 % opaque.
         let mut p = Palette::solid_base(dark);
-        p.backdrop.3 = o;
-        p.control.3 = (o + 0.2).min(1.0);
-        p.panel.3 = (o + 0.17).min(0.98);
+        p.backdrop.3 = ramp(transparency, 1.0, 0.8, 0.4);
+        p.control.3 = ramp(transparency, 1.0, 1.0, 0.6);
+        p.panel.3 = ramp(transparency, 0.98, 0.97, 0.6);
         p
     }
 
@@ -104,10 +115,10 @@ impl Palette {
         }
     }
 
-    /// Liquid (30nama's glass, dark): the `#1A1C22` tint is 55 % at the default
-    /// transparency (45), from 95 % (0, frosted) down to 5 % (100, clear).
+    /// Liquid (30nama's glass, dark): the `#1A1C22` tint over the blur is 55 % at the default
+    /// transparency (45), 94 % at 0 and 22 % at 100, so text stays readable.
     pub fn liquid(transparency: f32) -> Palette {
-        let tint = 0.95 - 0.9 * transparency.clamp(0.0, 1.0);
+        let tint = ramp(transparency, 0.94, 0.55, 0.22);
         let text = |a: f32| Rgba::hex(0xF4F1EA, a);
         Palette {
             dark: true,
