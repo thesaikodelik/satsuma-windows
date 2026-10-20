@@ -12,10 +12,7 @@ use satsuma_core::edit::{
     drag, fit_aspect, hit_handle, ratio_value, set_size, Adjustments, Background, CropSpec, FrameSpec, Handle, Rect, Section, ADJUSTMENTS,
     CROP_ASPECTS, FRAME_RATIOS, GRADIENTS, SOLIDS,
 };
-use satsuma_core::geometry::{WheelGeometry, WHEEL_VIEW_SIZE};
-use satsuma_core::settings::Appearance;
-use satsuma_core::{Format, Tool, WheelItem, WheelMode};
-use super::wheel::WheelModel;
+use satsuma_core::Tool;
 use satsuma_engine::imaging::{self, Image};
 use satsuma_engine::{photo, Operation};
 use std::cell::RefCell;
@@ -37,7 +34,7 @@ const SWATCH: f32 = 26.0;
 const SWATCH_GAP: f32 = 8.0;
 const ADJUST_ROWS_TOP: f32 = 58.0 + 7.0 * 30.0;
 
-type R = (f32, f32, f32, f32);
+pub(super) type R = (f32, f32, f32, f32);
 
 fn contains(r: R, x: f32, y: f32) -> bool {
     x >= r.0 && x < r.0 + r.2 && y >= r.1 && y < r.1 + r.3
@@ -107,24 +104,13 @@ struct AdjustState {
     preview: Option<Image>,
 }
 
-struct SettingsState {
-    appearance: Appearance,
-    transparency: u8,
-    /// A sample wheel to try the look on (hover its petals to see the liquid).
-    preview: WheelModel,
-}
-
 enum Kind {
     Crop(CropState),
     Frame(FrameState),
     Adjust(AdjustState),
-    Settings(SettingsState),
 }
 
-/// Where the Settings window's sample wheel sits (DIPs, top-left of its square).
-const PREVIEW_AT: (f32, f32) = ((W - WHEEL_VIEW_SIZE as f32) / 2.0, 6.0);
-/// Settings window content height.
-const SETTINGS_HEIGHT: f32 = 430.0;
+
 
 struct Editor {
     kind: Kind,
@@ -152,17 +138,6 @@ struct PillMotion {
 impl PillMotion {
     fn elapsed(&self) -> f32 {
         self.frozen.unwrap_or_else(|| self.started.elapsed().as_secs_f32())
-    }
-}
-
-pub const SETTINGS_TITLE: &str = "Satsuma Settings";
-
-impl SettingsState {
-    /// Applies the look everywhere at once and tells the app to save it.
-    fn changed(&self) {
-        super::theme::set_appearance(self.appearance);
-        super::theme::set_transparency(self.transparency);
-        events::post(UiEvent::AppearanceChanged { appearance: self.appearance, transparency: self.transparency });
     }
 }
 
@@ -194,7 +169,7 @@ pub(super) fn spring(t: f32) -> f32 {
 /// The liquid pill's pieces mid-flow (30nama's `Goo`): the leading edge runs ahead
 /// (ease-out cubic), the trailing edge follows (ease-in quad), the body thins in the
 /// middle of the run, and a drop shrinks away at the old place.
-fn goo(from: R, to: R, progress: f32) -> Vec<R> {
+pub(super) fn goo(from: R, to: R, progress: f32) -> Vec<R> {
     let p = progress.max(0.0);
     let settled = p.min(1.0);
     let lead = 1.0 - (1.0 - settled).powi(3) + (p - settled);
@@ -228,7 +203,6 @@ impl Editor {
             Kind::Crop(_) => "Crop Image",
             Kind::Frame(_) => "Add Background",
             Kind::Adjust(_) => "Edit Photo",
-            Kind::Settings(_) => SETTINGS_TITLE,
         }
     }
 
@@ -237,16 +211,6 @@ impl Editor {
         let h = self.mh();
         let mut v = Vec::new();
         match &self.kind {
-            Kind::Settings(_) => {
-                let top = PREVIEW_AT.1 + WHEEL_VIEW_SIZE as f32 + 10.0;
-                let seg = (W - 16.0 - 220.0, top, 220.0, 28.0);
-                for i in 0..Appearance::ALL.len() {
-                    let n = Appearance::ALL.len() as f32;
-                    v.push((Id::Segment(i), (seg.0 + seg.2 * i as f32 / n, seg.1, seg.2 / n, seg.3)));
-                }
-                v.push((Id::Slider(0), (130.0, top + 44.0, W - 130.0 - 70.0, 24.0)));
-                v.push((Id::Apply, (W - 16.0 - 110.0, self.height - 44.0, 110.0, 30.0)));
-            }
             Kind::Crop(_) => {
                 v.push((Id::Reset, mac(h, 16.0, 14.0, 96.0, 30.0)));
                 v.push((Id::Apply, mac(h, W - 126.0, 14.0, 110.0, 30.0)));
@@ -315,7 +279,6 @@ impl Editor {
             },
             Kind::Adjust(a) => (ADJUSTMENTS[i].min, ADJUSTMENTS[i].max, a.adjustments.0[i]),
             Kind::Crop(_) => (0.0, 1.0, 0.0),
-            Kind::Settings(st) => (0.0, 100.0, st.transparency as f64),
         }
     }
 
@@ -339,10 +302,6 @@ impl Editor {
                 self.render_adjust_preview();
             }
             Kind::Crop(_) => {}
-            Kind::Settings(st) => {
-                st.transparency = v as u8;
-                st.changed();
-            }
         }
     }
 
@@ -425,7 +384,6 @@ impl Editor {
                 a.show_original = false;
                 self.render_adjust_preview();
             }
-            Kind::Settings(_) => {}
         }
     }
 
@@ -434,8 +392,6 @@ impl Editor {
             Kind::Crop(c) => Operation::Crop(CropSpec::from_pixels(c.rect.rounded(c.size), c.size, None)),
             Kind::Frame(f) => Operation::Frame(f.spec.clone()),
             Kind::Adjust(a) => Operation::Adjust(a.adjustments),
-            // Never applied: Settings changes take effect as they are made.
-            Kind::Settings(_) => Operation::Adjust(Adjustments::default()),
         }
     }
 
@@ -444,14 +400,12 @@ impl Editor {
             Kind::Crop(c) => c.aspect_index,
             Kind::Frame(f) => f.ratio_index,
             Kind::Adjust(a) => a.section,
-            Kind::Settings(st) => Appearance::ALL.iter().position(|a| *a == st.appearance).unwrap_or(0),
         }
     }
 
     /// Whether the pill is still flowing (the window keeps redrawing while it is).
     fn pill_moving(&self) -> bool {
-        let preview = matches!(&self.kind, Kind::Settings(st) if st.preview.liquid.moving());
-        preview || self.pill.is_some_and(|m| m.elapsed() < PILL_SECONDS)
+        self.pill.is_some_and(|m| m.elapsed() < PILL_SECONDS)
     }
 
     fn select_segment(&mut self, i: usize) {
@@ -467,10 +421,6 @@ impl Editor {
                 self.render_frame_preview();
             }
             Kind::Adjust(a) => a.section = i.min(3),
-            Kind::Settings(st) => {
-                st.appearance = Appearance::ALL[i.min(Appearance::ALL.len() - 1)];
-                st.changed();
-            }
         }
     }
 
@@ -482,27 +432,6 @@ impl Editor {
         let h = self.mh();
         let label = |text: &str, r: R, align: Align| p.text(text, r, 12.0, Weight::Regular, pal.label, align, false);
         match &self.kind {
-            Kind::Settings(st) => {
-                // The sample wheel, in the look being chosen.
-                let wheel_pal = Palette::for_appearance(st.appearance, pal.dark);
-                p.translated(PREVIEW_AT.0, PREVIEW_AT.1, &|p| super::wheel::paint(p, &st.preview, &wheel_pal, None, self.scale));
-                let top = PREVIEW_AT.1 + WHEEL_VIEW_SIZE as f32 + 10.0;
-                label("Theme", (16.0, top, 120.0, 28.0), Align::Leading);
-                let names: Vec<&str> = Appearance::ALL.iter().map(|a| a.name()).collect();
-                self.paint_segments(p, pal, &names, self.current_segment());
-                label("Transparency", (16.0, top + 44.0, 110.0, 24.0), Align::Leading);
-                self.paint_slider(p, pal, 0);
-                p.text(&format!("{} %", st.transparency), (W - 64.0, top + 44.0, 52.0, 24.0), 12.0, Weight::Regular, pal.secondary, Align::Leading, false);
-                p.text(
-                    "Hover the petals to try the highlight.",
-                    (16.0, self.height - 44.0, W - 150.0, 30.0),
-                    11.0,
-                    Weight::Regular,
-                    pal.tertiary,
-                    Align::Leading,
-                    false,
-                );
-            }
             Kind::Crop(c) => {
                 label("W", mac(h, 16.0, 63.0, 18.0, 18.0), Align::Leading);
                 for (i, x) in [(0usize, 36.0), (1, 140.0)] {
@@ -585,11 +514,8 @@ impl Editor {
             Kind::Crop(_) => ("Apply", None),
             Kind::Frame(_) => ("Save with Background", None),
             Kind::Adjust(a) => ("Save Edited Copy", Some(a.show_original)),
-            Kind::Settings(_) => ("Done", None),
         };
-        if !matches!(self.kind, Kind::Settings(_)) {
-            self.paint_button(p, pal, Id::Reset, "Reset", false, false);
-        }
+        self.paint_button(p, pal, Id::Reset, "Reset", false, false);
         if let Some(on) = toggle {
             self.paint_button(p, pal, Id::ShowOriginal, "Show Original", false, on);
         }
@@ -749,17 +675,6 @@ impl Editor {
             self.set_slider_from_x(i, x);
             return true;
         }
-        if let Kind::Settings(st) = &mut self.kind {
-            let half = (WHEEL_VIEW_SIZE / 2.0) as f32;
-            let (dx, dy) = (x - PREVIEW_AT.0 - half, y - PREVIEW_AT.1 - half);
-            let hit = WheelGeometry::default().hit_test(dx as f64, -dy as f64, st.preview.items.len());
-            if hit.is_some() && hit != st.preview.selected {
-                st.preview.selected = hit;
-                st.preview.aim_liquid();
-                return true;
-            }
-            return false;
-        }
         let next = if let Kind::Crop(c) = &self.kind {
             let Some((handle, start, p0)) = c.drag else { return false };
             let f = self.crop_frame(c);
@@ -905,9 +820,6 @@ impl Handler for Messages {
                 let clicked = self.editor.try_borrow_mut().ok()?.pointer_up(x, y);
                 refresh(hwnd);
                 match clicked {
-                    Some(Id::Apply) if matches!(self.editor.borrow().kind, Kind::Settings(_)) => unsafe {
-                        let _ = DestroyWindow(hwnd);
-                    },
                     Some(Id::Apply) => {
                         let e = self.editor.borrow();
                         finish(hwnd, &e);
@@ -993,11 +905,6 @@ impl Handler for Messages {
                     e.caret_on = true;
                     drop(e);
                     refresh(hwnd);
-                } else if vk == VK_RETURN && matches!(e.kind, Kind::Settings(_)) {
-                    drop(e);
-                    unsafe {
-                        let _ = DestroyWindow(hwnd);
-                    }
                 } else if vk == VK_RETURN {
                     drop(e);
                     let e = self.editor.borrow();
@@ -1031,11 +938,6 @@ impl Handler for Messages {
                 Some(LRESULT(0))
             }
             WM_TIMER if wparam.0 == PILL_TIMER => {
-                if let Ok(mut e) = self.editor.try_borrow_mut() {
-                    if let Kind::Settings(st) = &mut e.kind {
-                        st.preview.liquid.step(std::time::Instant::now());
-                    }
-                }
                 let moving = self.editor.try_borrow().map(|e| e.pill_moving()).unwrap_or(true);
                 if !moving {
                     unsafe {
@@ -1094,7 +996,7 @@ pub fn refresh_all() {
     unsafe extern "system" fn each(hwnd: HWND, _: LPARAM) -> windows::core::BOOL {
         let mut title = [0u16; 32];
         let n = GetWindowTextW(hwnd, &mut title) as usize;
-        if matches!(String::from_utf16_lossy(&title[..n]).as_str(), "Crop Image" | "Add Background" | "Edit Photo" | "Float" | SETTINGS_TITLE) {
+        if matches!(String::from_utf16_lossy(&title[..n]).as_str(), "Crop Image" | "Add Background" | "Edit Photo" | "Float" | super::settings_window::TITLE) {
             apply_theme(hwnd);
             SendMessageW(hwnd, WM_SETTINGCHANGE, None, None);
             let _ = InvalidateRect(Some(hwnd), None, true);
@@ -1148,22 +1050,6 @@ impl EditorWindow {
     /// Opens the editor for `tool` (CropImage, FrameImage or EditImage) on the first file.
     pub fn open(tool: Tool, files: Vec<PathBuf>) -> Result<EditorWindow, String> {
         Ok(Self::create(build(tool, files)?))
-    }
-
-    /// The Settings window: theme and transparency, with a sample wheel.
-    pub fn settings(appearance: Appearance, transparency: u8) -> EditorWindow {
-        let items = [Format::Png, Format::Webp, Format::Heic, Format::Tiff, Format::Avif, Format::Bmp, Format::Pdf, Format::Docx]
-            .into_iter()
-            .map(WheelItem::Convert)
-            .collect();
-        let mut preview = WheelModel::new(WheelMode::Conversions, items);
-        preview.selected = Some(1);
-        preview.on_glass_window = true;
-        preview.settle_liquid();
-        preview.hub = vec!["2.4 MB".into()];
-        preview.estimates.insert(WheelItem::Convert(Format::Webp), Some("1.1 MB".into()));
-        let kind = Kind::Settings(SettingsState { appearance, transparency, preview });
-        Self::create(Editor { kind, files: Vec::new(), height: SETTINGS_HEIGHT, pressed: None, slider_drag: None, caret_on: true, scale: 1.0, pill: None })
     }
 
     fn create(editor: Editor) -> EditorWindow {

@@ -33,7 +33,7 @@ Install
    (the app isn't signed): click "More info", then "Run anyway".
 3. Satsuma's citrus icon appears in the notification area at the right end of the
    taskbar (it may be under the ^ arrow; drag it onto the taskbar to keep it visible).
-   Turn on "Launch at Login" in its menu to start it with Windows.
+   Turn on "Launch at login" in Settings > General to start it with Windows.
 4. For audio and video, install ffmpeg:  winget install Gyan.FFmpeg
    Images, documents, PDFs, spreadsheets, subtitles and archives work without it.
 
@@ -41,7 +41,7 @@ Use
 ---
 While dragging files from File Explorer or the desktop, tap
   Shift  for conversions,  Ctrl  for tools,  Alt  for file actions.
-Drop on a petal, or in the centre to cancel. Keys can be changed under Wheel Keys.
+Drop on a petal, or in the centre to cancel. Keys, theme and transparency are in Settings.
 Without dragging: Convert Files... in Satsuma's menu, then arrow keys and Enter.
 
 Command line: satsuma-cli.exe help

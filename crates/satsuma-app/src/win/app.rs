@@ -14,7 +14,7 @@ use super::hud::{Hud, HudModel};
 use super::system;
 use super::wheel::{WheelModel, WheelWindow};
 use super::window::{self, Handler};
-use satsuma_core::settings::{FloatBehavior, Settings, Strength, TerminalApp};
+use satsuma_core::settings::{FloatBehavior, Settings};
 use satsuma_core::wheel::{initial_keyboard_mode, wheel_items};
 use satsuma_core::{Action, Mods, WheelItem, WheelMode};
 use satsuma_engine::{capability, detect_format, plan, run_plan, BatchProgress, BatchReport, Cancel, Context, Env, Operation};
@@ -31,31 +31,11 @@ use windows::Win32::UI::HiDpi::{SetProcessDpiAwarenessContext, DPI_AWARENESS_CON
 use windows::Win32::UI::Shell::*;
 use windows::Win32::UI::WindowsAndMessaging::*;
 
-/// Wheel key choices on Windows (the Windows key is left out: tapping it opens Start).
-const COMBO_CHOICES: [Mods; 6] = [
-    Mods::SHIFT,
-    Mods::CONTROL,
-    Mods::OPTION,
-    Mods::CONTROL.union(Mods::SHIFT),
-    Mods::OPTION.union(Mods::SHIFT),
-    Mods::CONTROL.union(Mods::OPTION),
-];
-
-const IMAGE_SIZES: [u32; 4] = [0, 4096, 2048, 1024];
-
 // Menu command ids.
 const CMD_CONVERT: u32 = 1;
 const CMD_HELP: u32 = 2;
 const CMD_QUIT: u32 = 3;
-const CMD_FEEDBACK: u32 = 4;
-const CMD_LOGIN: u32 = 5;
 const CMD_SETTINGS: u32 = 6;
-const CMD_WHEEL_KEY: u32 = 100; // + mode * 16 + choice
-const CMD_STRENGTH: u32 = 200; // + 0/1 images, 10/11 video, 20/21 audio
-const CMD_IMAGE_SIZE: u32 = 300; // + index into IMAGE_SIZES
-const CMD_SPLIT: u32 = 400; // + parts
-const CMD_TERMINAL: u32 = 500; // + index into TerminalApp::choices()
-const CMD_FLOAT: u32 = 600; // + 0 existing / 1 new
 
 const WM_TRAY: u32 = WM_APP + 1;
 const TIMER_TICK: usize = 1;
@@ -204,7 +184,7 @@ fn welcome_text(s: &Settings) -> String {
          1. Drag files from File Explorer or the desktop.\n\
          2. While dragging, tap {} to convert, {} for tools, or {} for file actions.\n\
          3. Drop onto a petal. Results are saved next to the originals.\n\n\
-         You can change the keys in Satsuma's menu under Wheel Keys.",
+         You can change the keys, the look and more in Satsuma's Settings.",
         w.conversions.label(),
         w.tools.label(),
         w.actions.label()
@@ -464,10 +444,13 @@ impl Controller {
                 self.editors.retain(|e| e.id() != window);
             }
             UiEvent::EditorApply { op, files, at } => self.enqueue(PendingJob { op, files, at }),
-            UiEvent::AppearanceChanged { appearance, transparency } => {
-                self.settings.appearance = appearance;
-                self.settings.transparency = transparency;
+            UiEvent::SettingsEdited(edited) => {
+                let welcome = self.settings.has_completed_welcome;
+                self.settings = *edited;
+                self.settings.has_completed_welcome = welcome;
                 self.save_settings();
+                let tip = self.tip();
+                self.tray.update(&tip);
                 super::editor::refresh_all();
             }
             UiEvent::WindowDeactivated { window } => {
@@ -491,18 +474,6 @@ impl Controller {
             WheelItem::Tool(t) => self.enqueue(PendingJob { op: Operation::Tool(t), files, at }),
             WheelItem::Action(action) => self.perform_action(action, files, at),
         }
-    }
-
-    /// Shows the Settings window (or brings the open one forward).
-    fn open_settings(&mut self) {
-        let existing = unsafe { FindWindowW(None, &HSTRING::from(super::editor::SETTINGS_TITLE)) };
-        if let Some(hwnd) = existing.ok().filter(|h| !h.is_invalid()) {
-            unsafe {
-                let _ = SetForegroundWindow(hwnd);
-            }
-            return;
-        }
-        self.editors.push(EditorWindow::settings(self.settings.appearance, self.settings.transparency));
     }
 
     fn open_editor(&mut self, tool: satsuma_core::Tool, files: Vec<PathBuf>) {
@@ -658,62 +629,9 @@ impl Controller {
 
     fn command(&mut self, id: u32) {
         match id {
-            CMD_CONVERT => {}
             CMD_HELP => self.deferred.push(Deferred::Welcome),
-            CMD_SETTINGS => self.open_settings(),
             CMD_QUIT => unsafe { PostQuitMessage(0) },
-            CMD_FEEDBACK => {
-                self.settings.feedback = !self.settings.feedback;
-                self.save_settings();
-            }
-            CMD_LOGIN => {
-                if let Err(e) = system::set_launch_at_login(!system::launch_at_login()) {
-                    self.deferred.push(Deferred::Alert("Couldn't update Launch at Login".into(), e));
-                }
-            }
-            id if (CMD_WHEEL_KEY..CMD_WHEEL_KEY + 48).contains(&id) => {
-                let tag = (id - CMD_WHEEL_KEY) as usize;
-                let (mode, choice) = (WheelMode::ALL[(tag / 16).min(2)], COMBO_CHOICES[(tag % 16).min(COMBO_CHOICES.len() - 1)]);
-                // Swap with whichever wheel already uses the combination, so each stays unique.
-                let old = self.settings.wheels.combo(mode);
-                for other in WheelMode::ALL {
-                    if other != mode && self.settings.wheels.combo(other) == choice {
-                        self.settings.wheels.set(other, old);
-                    }
-                }
-                self.settings.wheels.set(mode, choice);
-                self.save_settings();
-                self.tray.update(&self.tip());
-            }
-            id if (CMD_STRENGTH..CMD_STRENGTH + 30).contains(&id) => {
-                let tag = id - CMD_STRENGTH;
-                let strength = if tag % 10 == 1 { Strength::Strong } else { Strength::Balanced };
-                match tag / 10 {
-                    0 => self.settings.image_compression = strength,
-                    1 => self.settings.video_compression = strength,
-                    _ => self.settings.audio_compression = strength,
-                }
-                self.save_settings();
-            }
-            id if (CMD_IMAGE_SIZE..CMD_IMAGE_SIZE + IMAGE_SIZES.len() as u32).contains(&id) => {
-                let px = IMAGE_SIZES[(id - CMD_IMAGE_SIZE) as usize];
-                self.settings.image_max_edge = if px == 0 { None } else { Some(px) };
-                self.save_settings();
-            }
-            id if (CMD_SPLIT + 2..=CMD_SPLIT + 6).contains(&id) => {
-                self.settings.split_video_parts = id - CMD_SPLIT;
-                self.save_settings();
-            }
-            id if (CMD_TERMINAL..CMD_TERMINAL + 10).contains(&id) => {
-                if let Some(app) = TerminalApp::choices().get((id - CMD_TERMINAL) as usize) {
-                    self.settings.terminal = *app;
-                    self.save_settings();
-                }
-            }
-            id if id == CMD_FLOAT || id == CMD_FLOAT + 1 => {
-                self.settings.float_behavior = if id == CMD_FLOAT + 1 { FloatBehavior::CreateNew } else { FloatBehavior::AddToExisting };
-                self.save_settings();
-            }
+            CMD_SETTINGS => super::settings_window::open(&self.settings),
             _ => {}
         }
     }
@@ -769,70 +687,15 @@ impl Menu {
         }
     }
 
-    fn submenu(&self, title: &str, sub: Menu) {
-        unsafe {
-            let _ = AppendMenuW(self.0, MF_POPUP, sub.0 .0 as usize, &HSTRING::from(title));
-        }
-    }
 }
 
-fn build_menu(s: &Settings, working: bool) -> Menu {
+fn build_menu(working: bool) -> Menu {
     let menu = Menu::new();
     menu.item(0, if working { "Satsuma is working…" } else { "Satsuma is ready" }, false, false);
     menu.separator();
     menu.item(CMD_CONVERT, "Convert Files…", false, true);
-    menu.separator();
-
-    let keys = Menu::new();
-    for (mi, mode) in WheelMode::ALL.into_iter().enumerate() {
-        let current = s.wheels.combo(mode);
-        let sub = Menu::new();
-        for (ci, m) in COMBO_CHOICES.iter().enumerate() {
-            sub.item(CMD_WHEEL_KEY + (mi * 16 + ci) as u32, &m.label(), *m == current, true);
-        }
-        keys.submenu(&format!("{}: {}", mode.name(), current.label()), sub);
-    }
-    menu.submenu("Wheel Keys", keys);
-
-    let strength = |base: u32, current: Strength| {
-        let m = Menu::new();
-        m.item(CMD_STRENGTH + base, "Balanced", current == Strength::Balanced, true);
-        m.item(CMD_STRENGTH + base + 1, "Strong", current == Strength::Strong, true);
-        m
-    };
-    let sizes = Menu::new();
-    for (i, px) in IMAGE_SIZES.iter().enumerate() {
-        let title = if *px == 0 { "Keep Original Dimensions".to_string() } else { format!("Longest Edge {px} px") };
-        sizes.item(CMD_IMAGE_SIZE + i as u32, &title, s.image_max_edge.unwrap_or(0) == *px, true);
-    }
-    let compression = Menu::new();
-    compression.submenu("Images", strength(0, s.image_compression));
-    compression.submenu("Image Size", sizes);
-    compression.submenu("Video", strength(10, s.video_compression));
-    compression.submenu("Audio", strength(20, s.audio_compression));
-    menu.submenu("Compression", compression);
-
-    let parts = Menu::new();
-    for n in 2..=6u32 {
-        parts.item(CMD_SPLIT + n, &format!("{n} Equal Parts"), s.split_video_parts == n, true);
-    }
-    menu.submenu("Split Video Into", parts);
-
-    let terminals = Menu::new();
-    for (i, app) in TerminalApp::choices().iter().enumerate() {
-        terminals.item(CMD_TERMINAL + i as u32, app.name(), s.terminal == *app, true);
-    }
-    menu.submenu("Terminal App", terminals);
-
-    let float = Menu::new();
-    float.item(CMD_FLOAT, "Add Files to an Existing Float", s.float_behavior == FloatBehavior::AddToExisting, true);
-    float.item(CMD_FLOAT + 1, "Create a New Float", s.float_behavior == FloatBehavior::CreateNew, true);
-    menu.submenu("Float", float);
-
-    menu.item(CMD_FEEDBACK, "Sound Feedback", s.feedback, true);
-    menu.item(CMD_LOGIN, "Launch at Login", system::launch_at_login(), true);
-    menu.separator();
     menu.item(CMD_SETTINGS, "Settings…", false, true);
+    menu.separator();
     menu.item(CMD_HELP, "How to Use Satsuma", false, true);
     menu.item(CMD_QUIT, "Quit Satsuma", false, true);
     menu
@@ -840,8 +703,8 @@ fn build_menu(s: &Settings, working: bool) -> Menu {
 
 /// Shows the tray menu and runs the chosen command (outside the controller borrow while open).
 fn show_menu(hwnd: HWND) {
-    let Some((settings, working)) = with_controller(|c| (c.settings.clone(), c.job.is_some())) else { return };
-    let menu = build_menu(&settings, working);
+    let Some(working) = with_controller(|c| c.job.is_some()) else { return };
+    let menu = build_menu(working);
     let mut pt = POINT::default();
     let cmd = unsafe {
         let _ = GetCursorPos(&mut pt);
@@ -987,7 +850,7 @@ pub fn run() {
     controller.tray.add(&tip);
     #[cfg(debug_assertions)]
     if std::env::var_os("SATSUMA_OPEN_SETTINGS").is_some() {
-        controller.open_settings();
+        super::settings_window::open(&controller.settings);
     }
     if welcome {
         controller.settings.has_completed_welcome = true;

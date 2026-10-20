@@ -91,7 +91,8 @@ You need Windows 10 (1903) or later, x64.
    (for example `%LOCALAPPDATA%\Programs\Satsuma`).
 2. Run `satsuma.exe`. It isn't code-signed, so SmartScreen may stop it the first time: click
    **More info**, then **Run anyway**.
-3. Satsuma's citrus icon appears in the notification area. Turn on **Launch at Login** in its menu.
+3. Satsuma's citrus icon appears in the notification area. Turn on **Launch at login** in
+   **Settings › General**.
 4. For audio and video: `winget install Gyan.FFmpeg`.
 
 While dragging, tap **Shift** to convert, **Ctrl** for tools and **Alt** for file actions. AirDrop

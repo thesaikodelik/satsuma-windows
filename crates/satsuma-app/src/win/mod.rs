@@ -40,6 +40,7 @@ mod liquid;
 mod system;
 #[cfg(debug_assertions)]
 mod selftest;
+mod settings_window;
 mod theme;
 mod wheel;
 mod window;
