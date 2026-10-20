@@ -241,8 +241,9 @@ impl Editor {
                 for i in 0..SOLIDS.len() {
                     v.push((Id::Solid(i), mac(h, 16.0 + i as f32 * (SWATCH + SWATCH_GAP), 186.0, SWATCH, SWATCH)));
                 }
-                v.push((Id::ImageButton, mac(h, W - 100.0, 213.0, 84.0, 30.0)));
-                v.push((Id::ColorButton, mac(h, W - 60.0, 186.0, 44.0, 26.0)));
+                // On the rows of the swatches beside them, with the same gap between.
+                v.push((Id::ImageButton, mac(h, W - 100.0, 216.0, 84.0, SWATCH)));
+                v.push((Id::ColorButton, mac(h, W - 60.0, 186.0, 44.0, SWATCH)));
             }
             Kind::Adjust(a) => {
                 v.push((Id::Reset, mac(h, 16.0, 14.0, 90.0, 30.0)));

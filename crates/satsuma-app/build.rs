@@ -13,7 +13,7 @@ fn main() {
         res.set_icon_with_id("assets/satsuma.ico", "1")
             .set_manifest_file("assets/satsuma.manifest")
             .set("ProductName", "Satsuma")
-            .set("FileDescription", "Satsuma — drag-gesture file converter")
+            .set("FileDescription", "Satsuma")
             .set("CompanyName", "Satsuma contributors")
             .set("LegalCopyright", "MIT License");
         if let Err(e) = res.compile() {
