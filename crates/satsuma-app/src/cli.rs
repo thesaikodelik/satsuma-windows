@@ -112,7 +112,7 @@ fn paths(args: &[String]) -> Vec<PathBuf> {
     args.iter().map(|a| canonical(a)).collect()
 }
 
-/// An absolute path without Windows' `\?\` verbatim prefix.
+/// An absolute path without Windows' `\\?\` verbatim prefix.
 fn canonical(a: &str) -> PathBuf {
     match std::fs::canonicalize(a) {
         #[cfg(windows)]
