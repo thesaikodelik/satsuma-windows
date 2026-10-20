@@ -155,7 +155,7 @@ impl Surface {
             let painter = Painter { rt: self.rt.clone().into() };
             f(&painter);
             let _ = self.rt.EndDraw(None, None);
-            GdiFlush();
+            let _ = GdiFlush();
         }
     }
 
@@ -342,16 +342,6 @@ impl Painter {
                 self.rt.DrawBitmap(&bmp, Some(&r), 1.0, D2D1_BITMAP_INTERPOLATION_MODE_LINEAR, None);
             }
         }
-    }
-
-    /// Clips subsequent drawing to an axis-aligned rectangle until `pop_clip`.
-    pub fn push_clip(&self, rect: (f32, f32, f32, f32)) {
-        let r = D2D_RECT_F { left: rect.0, top: rect.1, right: rect.0 + rect.2, bottom: rect.1 + rect.3 };
-        unsafe { self.rt.PushAxisAlignedClip(&r, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE) }
-    }
-
-    pub fn pop_clip(&self) {
-        unsafe { self.rt.PopAxisAlignedClip() }
     }
 }
 

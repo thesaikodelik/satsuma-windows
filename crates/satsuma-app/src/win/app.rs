@@ -393,11 +393,6 @@ impl Controller {
                     self.hud_hide_at = None;
                 }
             },
-            UiEvent::FloatAdd { window, files } => {
-                if let Some(f) = self.floats.iter().find(|f| f.id() == window) {
-                    f.add(&files);
-                }
-            }
             UiEvent::WindowClosed { window } => {
                 self.floats.retain(|f| f.id() != window);
                 self.editors.retain(|e| e.id() != window);
@@ -409,7 +404,6 @@ impl Controller {
                     self.wheel.hide();
                 }
             }
-            UiEvent::Tray(_) | UiEvent::ThemeChanged => {}
         }
     }
 

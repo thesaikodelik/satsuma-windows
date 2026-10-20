@@ -4,7 +4,7 @@
 use super::dragsource;
 use super::droptarget::{self, DropHandler};
 use super::events::{self, Point, UiEvent};
-use super::gfx::{Align, Painter, Rgba, Surface, Weight};
+use super::gfx::{Align, Painter, Surface, Weight};
 use super::theme::{Palette, ACCENT};
 use super::window::{self, Handler};
 use super::system;
@@ -401,6 +401,3 @@ impl FloatWindow {
         }
     }
 }
-
-#[allow(dead_code)]
-fn unused(_: Rgba) {}

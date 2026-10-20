@@ -555,16 +555,3 @@ pub fn open_item(path: &Path) {
         ShellExecuteW(None, &HSTRING::from("open"), &HSTRING::from(path.as_os_str()), None, None, SW_SHOWNORMAL);
     }
 }
-
-/// Shows an item selected in File Explorer.
-pub fn reveal(path: &Path) {
-    let _ = std::process::Command::new("explorer.exe").arg(format!("/select,{}", path.display())).spawn();
-}
-
-/// Converts `\\?\C:\…` to `C:\…`.
-pub fn plain_path(p: PathBuf) -> PathBuf {
-    dunce::simplified(&p).to_path_buf()
-}
-
-#[allow(dead_code)]
-pub fn interface_check<T: Interface>() {}

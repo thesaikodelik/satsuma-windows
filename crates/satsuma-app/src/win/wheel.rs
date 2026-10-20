@@ -428,10 +428,6 @@ impl WheelWindow {
     pub fn has_selection(&self) -> bool {
         self.state.borrow().model.selected.is_some()
     }
-
-    pub fn is_probing(&self) -> bool {
-        self.state.borrow().probing
-    }
 }
 
 /// Renders a wheel to a PNG at 2× (for `satsuma render-wheel`).

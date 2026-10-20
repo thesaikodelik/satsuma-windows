@@ -7,7 +7,7 @@ use windows::core::{implement, Ref, Result};
 use windows::Win32::Foundation::{HWND, POINTL};
 use windows::Win32::System::Com::{IDataObject, DVASPECT_CONTENT, FORMATETC, TYMED_HGLOBAL};
 use windows::Win32::System::Ole::{
-    IDropTarget, IDropTarget_Impl, RegisterDragDrop, ReleaseStgMedium, RevokeDragDrop, CF_HDROP, DROPEFFECT, DROPEFFECT_NONE,
+    IDropTarget, IDropTarget_Impl, RegisterDragDrop, ReleaseStgMedium, RevokeDragDrop, CF_HDROP, DROPEFFECT,
 };
 use windows::Win32::System::SystemServices::MODIFIERKEYS_FLAGS;
 use windows::Win32::UI::Shell::{DragQueryFileW, HDROP};
@@ -83,5 +83,3 @@ pub fn revoke(hwnd: HWND) {
         let _ = RevokeDragDrop(hwnd);
     }
 }
-
-pub const NONE: DROPEFFECT = DROPEFFECT_NONE;

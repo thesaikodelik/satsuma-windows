@@ -4,7 +4,7 @@
 
 <h1 align="center">Satsuma</h1>
 
-<p align="center">A drag-gesture file converter for the macOS menu bar, written in Rust.</p>
+<p align="center">A drag-gesture file converter for the macOS menu bar and the Windows notification area, written in Rust.</p>
 
 <p align="center">
   <img src="docs/demo.gif" width="900" alt="Satsuma demo: dragging a photo and tapping Shift opens a wheel of formats; dropping on PNG saves Beach.png next to the original. The same works for audio, Command opens the tools wheel and its Crop editor, and tapping another key switches wheels.">
@@ -82,6 +82,24 @@ You need macOS 13 or later.
 
 Satsuma needs no Accessibility or Screen Recording permission. It detects drags from the system drag
 pasteboard and the mouse and modifier state.
+
+### Windows
+
+You need Windows 10 (1903) or later, x64.
+
+1. Download `Satsuma-<version>-windows-x64.zip`, unzip it and move the folder somewhere permanent
+   (for example `%LOCALAPPDATA%\Programs\Satsuma`).
+2. Run `satsuma.exe`. It isn't code-signed, so SmartScreen may stop it the first time: click
+   **More info**, then **Run anyway**.
+3. Satsuma's citrus icon appears in the notification area. Turn on **Launch at Login** in its menu.
+4. For audio and video: `winget install Gyan.FFmpeg`.
+
+While dragging, tap **Shift** to convert, **Ctrl** for tools and **Alt** for file actions. AirDrop
+becomes **Share**, and Terminal opens Windows Terminal, PowerShell or Command Prompt.
+[docs/WINDOWS.md](docs/WINDOWS.md) explains how the Windows version works and what it needs.
+
+To build it yourself, install Rust and the Visual Studio C++ Build Tools, then run
+`powershell -ExecutionPolicy Bypass -File scripts\package-windows.ps1`.
 
 ### Build from source
 
@@ -171,7 +189,7 @@ wheel, progress and editor views into it.
 |-------|------|
 | `crates/satsuma-core` | Platform-independent logic: formats, the 275-path matrix, tools and actions, output naming, wheel geometry and hit testing, the drag-gesture state machine, settings |
 | `crates/satsuma-engine` | Conversion backends, job planning, staging and publishing results, progress and cancellation |
-| `crates/satsuma-app` | AppKit app (objc2): status item, drag sampling, wheel panel (drop target), progress window, Float shelf, actions, CLI |
+| `crates/satsuma-app` | AppKit app (objc2): status item, drag sampling, wheel panel (drop target), progress window, Float shelf, actions, CLI. `src/win/`: the Windows app (Win32, Direct2D, OLE drag and drop) |
 
 There are 68 core tests (matrix, naming, geometry, gesture state machine, crop, background and adjustment
 models, settings) and 50 engine unit tests. There are also 17 end-to-end tests that run real conversions on

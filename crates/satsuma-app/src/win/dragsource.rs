@@ -1,7 +1,7 @@
 //! Dragging files out of Satsuma (the Float shelf) with OLE `DoDragDrop`, using the shell's
 //! own data object so every app sees the same formats as a drag from File Explorer.
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use windows::core::{implement, Result, HRESULT, HSTRING};
 use windows::Win32::Foundation::{DRAGDROP_S_CANCEL, DRAGDROP_S_DROP, DRAGDROP_S_USEDEFAULTCURSORS, S_OK};
 use windows::Win32::System::Com::IDataObject;
@@ -59,9 +59,4 @@ pub fn drag_files(paths: &[PathBuf]) -> Result<DROPEFFECT> {
         return Err(hr.into());
     }
     Ok(effect)
-}
-
-#[allow(dead_code)]
-pub fn exists(p: &Path) -> bool {
-    p.exists()
 }

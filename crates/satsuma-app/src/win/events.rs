@@ -20,18 +20,9 @@ pub enum UiEvent {
     WheelCancel,
     WheelSwitch(WheelMode),
     HudClose,
-    FloatAdd { window: isize, files: Vec<PathBuf> },
     WindowClosed { window: isize },
     EditorApply { op: Operation, files: Vec<PathBuf>, at: Point },
     WindowDeactivated { window: isize },
-    Tray(TrayEvent),
-    ThemeChanged,
-}
-
-#[derive(Debug, Clone, Copy)]
-pub enum TrayEvent {
-    Menu,
-    Command(u32),
 }
 
 thread_local! {
