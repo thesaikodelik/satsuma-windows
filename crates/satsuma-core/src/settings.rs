@@ -64,17 +64,20 @@ pub enum Appearance {
     LiquidGlass,
     /// Blurred, smoky dark glass.
     LiquidSmoke,
+    /// 30nama's drawn glass: dark acrylic, a glare from above, a lit rim and a white pill.
+    NamaGlass,
     /// Opaque surfaces following the system light/dark mode.
     Solid,
 }
 
 impl Appearance {
-    pub const ALL: [Appearance; 3] = [Appearance::LiquidGlass, Appearance::LiquidSmoke, Appearance::Solid];
+    pub const ALL: [Appearance; 4] = [Appearance::LiquidGlass, Appearance::LiquidSmoke, Appearance::NamaGlass, Appearance::Solid];
 
     pub fn name(self) -> &'static str {
         match self {
             Appearance::LiquidGlass => "Liquid Glass",
             Appearance::LiquidSmoke => "Liquid Glass Smoke",
+            Appearance::NamaGlass => "30nama Glass",
             Appearance::Solid => "Solid",
         }
     }

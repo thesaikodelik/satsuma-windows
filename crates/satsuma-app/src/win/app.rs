@@ -268,6 +268,8 @@ impl Controller {
             estimates: Default::default(),
             estimating: false,
             phase: 0.0,
+            motion: None,
+            frozen: None,
         }
     }
 

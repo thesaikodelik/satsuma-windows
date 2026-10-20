@@ -27,7 +27,6 @@ macro_rules! debug {
 }
 
 mod app;
-mod backdrop;
 mod dragsource;
 mod droptarget;
 mod editor;
@@ -62,6 +61,14 @@ pub fn attach_console() {
 pub fn render_wheel(mode: WheelMode, items: Vec<WheelItem>, selected: Option<usize>, dark: bool, out: &Path) -> Result<(), String> {
     let mut model = wheel::WheelModel::new(mode, items);
     model.selected = selected;
+    // Debug renders can catch the highlight mid-flow: SATSUMA_FLOW="<from petal>,<seconds>".
+    if let Some((from, t)) = std::env::var("SATSUMA_FLOW").ok().and_then(|v| {
+        let (a, b) = v.split_once(',')?;
+        Some((a.trim().parse::<usize>().ok()?, b.trim().parse::<f32>().ok()?))
+    }) {
+        model.motion = Some((from, std::time::Instant::now()));
+        model.frozen = Some(t);
+    }
     wheel::render_png(&model, dark, out)
 }
 
@@ -85,6 +92,7 @@ fn render_theme() -> satsuma_core::settings::Appearance {
     match std::env::var("SATSUMA_THEME").unwrap_or_default().as_str() {
         "glass" => Appearance::LiquidGlass,
         "smoke" => Appearance::LiquidSmoke,
+        "nama" => Appearance::NamaGlass,
         _ => Appearance::Solid,
     }
 }

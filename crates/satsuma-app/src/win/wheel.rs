@@ -6,7 +6,6 @@
 //! under the pointer at alpha 1/255 (invisible, but still hit-testable). If the drag loop
 //! delivers a drag carrying files to it, the wheel turns visible; otherwise it disappears.
 
-use super::backdrop::Backdrop;
 use super::droptarget::{self, DropHandler};
 use super::events::{self, Point, UiEvent};
 use super::gfx::{Align, Painter, Rgba, Surface, Weight};
@@ -42,6 +41,10 @@ pub struct WheelModel {
     pub estimating: bool,
     /// Seconds into the dots' animation.
     pub phase: f32,
+    /// The highlight flowing here from another petal, and since when (30nama's liquid pill).
+    pub motion: Option<(usize, std::time::Instant)>,
+    /// Offscreen renders show one moment of the flow (seconds).
+    pub frozen: Option<f32>,
 }
 
 impl WheelModel {
@@ -57,6 +60,8 @@ impl WheelModel {
             estimates: HashMap::new(),
             estimating: false,
             phase: 0.0,
+            motion: None,
+            frozen: None,
         }
     }
 }
@@ -72,26 +77,150 @@ struct State {
     /// Files of the drag currently over the wheel.
     files: Vec<PathBuf>,
     palette: Palette,
+    behind: Option<Behind>,
     started: std::time::Instant,
 }
 
 pub struct WheelWindow {
     pub hwnd: HWND,
     state: Rc<RefCell<State>>,
-    backdrop: Backdrop,
 }
 
 fn size_px(scale: f32) -> i32 {
     (WHEEL_VIEW_SIZE as f32 * scale).ceil() as i32
 }
 
-/// Draws a wheel model centred in a `WHEEL_VIEW_SIZE` square (DIPs).
-pub fn paint(p: &Painter, m: &WheelModel, pal: &Palette) {
+/// A ring sector: centre angle (radians, y up), half its angle, mid radius and half its
+/// thickness (DIPs).
+#[derive(Clone, Copy)]
+struct Sector {
+    angle: f32,
+    half: f32,
+    mid: f32,
+    thick: f32,
+}
+
+fn petal_sector(i: usize, n: usize) -> Sector {
+    let g = WheelGeometry::default();
+    let mid = ((g.inner + g.outer) / 2.0) as f32;
+    let thick = ((g.outer - g.inner) / 2.0) as f32;
+    let half = if n <= 1 { std::f32::consts::PI } else { std::f32::consts::PI / n as f32 - (g.gap as f32 / 2.0) / mid };
+    Sector { angle: WheelGeometry::petal_angle(i, n) as f32, half, mid, thick }
+}
+
+fn wrap(a: f32) -> f32 {
+    let tau = std::f32::consts::TAU;
+    let mut a = a.rem_euclid(tau);
+    if a > std::f32::consts::PI {
+        a -= tau;
+    }
+    a
+}
+
+/// Signed distance to a sector with rounded corners, measured along arcs and radii.
+fn sector_sdf(x: f32, y_up: f32, s: Sector) -> f32 {
+    let r = (x * x + y_up * y_up).sqrt();
+    let u = wrap(y_up.atan2(x) - s.angle).abs() * r;
+    let corner = 11f32.min(s.half * s.mid * 0.5).min(s.thick * 0.6).max(0.5);
+    let qx = u - (s.half * r - corner);
+    let qy = (r - s.mid).abs() - (s.thick - corner);
+    (qx.max(0.0).powi(2) + qy.max(0.0).powi(2)).sqrt() + qx.max(qy).min(0.0) - corner
+}
+
+/// The highlight mid-flow from petal `from` to `to` (30nama's `Goo`, around the ring): the
+/// leading edge runs ahead, the trailing edge follows, the body thins halfway, and a drop
+/// shrinks away on the old petal.
+fn sector_goo(from: Sector, to: Sector, progress: f32) -> Vec<Sector> {
+    let p = progress.max(0.0);
+    let settled = p.min(1.0);
+    let lead = 1.0 - (1.0 - settled).powi(3) + (p - settled);
+    let trail = settled * settled;
+    let target = from.angle + wrap(to.angle - from.angle);
+    let forward = target > from.angle;
+    let (f_lo, f_hi, t_lo, t_hi) = (from.angle - from.half, from.angle + from.half, target - to.half, target + to.half);
+    let lo = f_lo + (t_lo - f_lo) * if forward { trail } else { lead };
+    let hi = f_hi + (t_hi - f_hi) * if forward { lead } else { trail };
+    let thick = to.thick * (1.0 - 0.32 * (std::f32::consts::PI * settled).sin());
+    let mut pieces = vec![Sector { angle: (lo + hi) / 2.0, half: ((hi - lo) / 2.0).max(0.01), mid: to.mid, thick }];
+    let left = (1.0 - settled).powf(1.6);
+    if left > 0.02 {
+        pieces.push(Sector { angle: from.angle, half: from.half * left, mid: from.mid, thick: from.thick * left });
+    }
+    pieces
+}
+
+/// The highlight is still flowing between petals.
+fn moving(m: &WheelModel) -> bool {
+    m.motion.is_some_and(|(_, t)| t.elapsed().as_secs_f32() < super::editor::PILL_SECONDS)
+}
+
+/// A blurred copy of what is behind the wheel (RGBA, width, height), for Liquid Glass.
+pub type Behind = (Vec<u8>, u32, u32);
+
+/// 30nama's glare: bright over the top half, a little caught along the bottom (`v` 0–1, top to bottom).
+fn nama_glare(lit: bool, v: f32) -> f32 {
+    let (top, mid, bottom) = if lit { (0.30, 0.06, 0.10) } else { (0.12, 0.02, 0.04) };
+    let lerp = |a: f32, b: f32, t: f32| a + (b - a) * t.clamp(0.0, 1.0);
+    if v < 0.5 {
+        lerp(top, mid, v / 0.5)
+    } else if v < 0.7 {
+        lerp(mid, 0.0, (v - 0.5) / 0.2)
+    } else {
+        lerp(0.0, bottom, (v - 0.7) / 0.3)
+    }
+}
+
+/// 30nama's rim light: bright where light strikes the top edge, faint along the bottom.
+fn nama_rim(lit: bool, v: f32) -> f32 {
+    let stops = if lit { [0.95, 0.25, 0.05, 0.45] } else { [0.55, 0.12, 0.05, 0.22] };
+    let t = (v.clamp(0.0, 1.0) * 3.0).min(2.999);
+    let k = t.floor() as usize;
+    stops[k] + (stops[k + 1] - stops[k]) * (t - k as f32)
+}
+
+fn white(a: f32) -> Rgba {
+    Rgba(1.0, 1.0, 1.0, a)
+}
+
+/// The vertical extent (y down) of a sector drawn around `c`.
+fn sector_rows(s: Sector, c: f32) -> (f32, f32) {
+    let (mut top, mut bottom) = (f32::MAX, f32::MIN);
+    for k in 0..=8 {
+        let a = s.angle - s.half + s.half * 2.0 * k as f32 / 8.0;
+        for r in [s.mid - s.thick, s.mid + s.thick] {
+            let y = c - r * a.sin();
+            top = top.min(y);
+            bottom = bottom.max(y);
+        }
+    }
+    (top, bottom)
+}
+
+/// Draws a wheel model centred in a `WHEEL_VIEW_SIZE` square (DIPs); `scale` is pixels per DIP.
+pub fn paint(p: &Painter, m: &WheelModel, pal: &Palette, behind: Option<&Behind>, scale: f32) {
     let g = WheelGeometry::default();
     let c = (WHEEL_VIEW_SIZE / 2.0) as f32;
     let backdrop = g.backdrop as f32;
+    let disc = (c - backdrop, c - backdrop, backdrop * 2.0, backdrop * 2.0);
+    if pal.nama {
+        // A soft shadow under the glass (black 22 %, radius 7, 3 down).
+        for k in (1..=5).rev() {
+            p.fill_circle(c, c + 3.0, backdrop + k as f32 * 1.3, Rgba(0.0, 0.0, 0.0, 0.22 / 6.0));
+        }
+    }
+    if let (true, Some((px, w, h))) = (pal.glass, behind) {
+        let size = WHEEL_VIEW_SIZE as f32;
+        p.fill_round_rect_image(disc, backdrop, (0.0, 0.0, size, size), px, *w, *h);
+    }
     p.fill_circle(c, c, backdrop, pal.backdrop);
-    if pal.glass {
+    if pal.nama {
+        // 30nama's drawn glass: a faint body, a glare from above and a lit rim.
+        p.fill_circle(c, c, backdrop, white(0.02));
+        let glare: Vec<(f32, Rgba)> = [0.0, 0.5, 0.7, 1.0].iter().map(|v| (*v, white(nama_glare(false, *v)))).collect();
+        p.round_rect_gradient(disc.0, disc.1, disc.2, disc.3, backdrop, &glare, (c, disc.1), (c, disc.1 + disc.3), None);
+        let rim: Vec<(f32, Rgba)> = [0.0, 1.0 / 3.0, 2.0 / 3.0, 1.0].iter().map(|v| (*v, white(nama_rim(false, *v)))).collect();
+        p.round_rect_gradient(disc.0 + 0.6, disc.1 + 0.6, disc.2 - 1.2, disc.3 - 1.2, backdrop - 0.6, &rim, (c, disc.1), (c, disc.1 + disc.3), Some(1.2));
+    } else if pal.glass {
         p.stroke_circle(c, c, backdrop - 0.5, pal.rim, 1.0);
     } else {
         p.stroke_circle(c, c, backdrop - 0.25, pal.separator, 0.5);
@@ -103,23 +232,58 @@ pub fn paint(p: &Painter, m: &WheelModel, pal: &Palette) {
     }
     let n = m.items.len();
     let dense = n > 6;
-    for (i, item) in m.items.iter().enumerate() {
-        let highlighted = m.selected == Some(i);
+    // Plain petals; the highlight is drawn on top as liquid so it can flow between them.
+    for i in 0..n {
         if let Some(geo) = p.path(&g.petal_path(i, n), c, c) {
-            if pal.glass {
-                // Glass petals: a light tint with a bright 1 px rim; the selection is tinted glass too.
-                p.fill_geometry(&geo, if highlighted { ACCENT.alpha(0.88) } else { pal.control });
-                p.stroke_geometry(&geo, if highlighted { Rgba(1.0, 1.0, 1.0, 0.55) } else { pal.rim }, 1.0);
+            if pal.nama {
+                // 30nama's tabs have no surface of their own; a whisper keeps petals apart.
+                p.fill_geometry(&geo, white(0.035));
+            } else if pal.glass {
+                p.fill_geometry(&geo, pal.control);
+                p.stroke_geometry(&geo, pal.rim, 1.0);
             } else {
-                p.fill_geometry(&geo, if highlighted { ACCENT } else { pal.control.alpha(0.92) });
-                if !highlighted {
-                    p.stroke_geometry(&geo, pal.separator, 0.5);
-                }
+                p.fill_geometry(&geo, pal.control.alpha(0.92));
+                p.stroke_geometry(&geo, pal.separator, 0.5);
             }
         }
-        let color = if highlighted { Rgba::WHITE } else { pal.label };
+    }
+    let elapsed = m.motion.map(|(_, t)| m.frozen.unwrap_or_else(|| t.elapsed().as_secs_f32())).unwrap_or(f32::MAX);
+    let selected = m.selected.filter(|s| *s < n);
+    let pieces = match (selected, m.motion) {
+        (Some(sel), Some((from, _))) if from < n && elapsed < super::editor::PILL_SECONDS => {
+            sector_goo(petal_sector(from, n), petal_sector(sel, n), super::editor::spring(elapsed))
+        }
+        (Some(sel), _) => vec![petal_sector(sel, n)],
+        (None, _) => Vec::new(),
+    };
+    let liquid = |x: f32, y: f32| pieces.iter().map(|s| sector_sdf(x - c, c - y, *s)).reduce(super::gfx::smooth_union).unwrap_or(f32::MAX);
+    if let Some(sel) = selected {
+        let o = g.outer as f32 + 2.0;
+        let area = (c - o, c - o, o * 2.0, o * 2.0);
+        if pal.nama {
+            // The lit glass pill: white body and glare over the pill's height, a bright rim.
+            let (top, bottom) = sector_rows(petal_sector(sel, n), c);
+            let span = (bottom - top).max(1.0);
+            p.sdf_fill_lit(area, scale, &|y| {
+                let v = ((y - top) / span).clamp(0.0, 1.0);
+                (white(0.10 + nama_glare(true, v)), white(nama_rim(true, v)))
+            }, &liquid);
+        } else {
+            let (fill, rim) = if pal.glass { (ACCENT.alpha(0.88), white(0.55)) } else { (ACCENT, white(0.0)) };
+            p.sdf_fill(area, scale, fill, rim, &liquid);
+        }
+    }
+    for (i, item) in m.items.iter().enumerate() {
         let lp = g.label_position(i, n);
         let (x, y) = (c + lp.x as f32, c - lp.y as f32);
+        // A label is lit while the liquid is under it.
+        let lit = !pieces.is_empty() && liquid(x, y) < -2.0;
+        let color = match (pal.nama, lit) {
+            (true, true) => pal.label,
+            (true, false) => pal.secondary,
+            (false, true) => Rgba::WHITE,
+            (false, false) => pal.label,
+        };
         let title = item.title();
         match item.symbol() {
             Some(name) => {
@@ -131,9 +295,14 @@ pub fn paint(p: &Painter, m: &WheelModel, pal: &Palette) {
     }
 
     let selected = m.selected.and_then(|i| m.items.get(i));
+    let accent = if pal.nama { pal.label } else { ACCENT };
     if selected.is_some() || !m.hub.is_empty() {
         let r = (g.inner - 6.0) as f32;
-        if pal.glass {
+        if pal.nama {
+            p.fill_circle(c, c, r, white(0.04));
+            let rim: Vec<(f32, Rgba)> = [0.0, 1.0 / 3.0, 2.0 / 3.0, 1.0].iter().map(|v| (*v, white(nama_rim(false, *v)))).collect();
+            p.round_rect_gradient(c - r + 0.6, c - r + 0.6, 2.0 * r - 1.2, 2.0 * r - 1.2, r - 0.6, &rim, (c, c - r), (c, c + r), Some(1.2));
+        } else if pal.glass {
             p.fill_circle(c, c, r, pal.control);
             p.stroke_circle(c, c, r - 0.5, pal.rim, 1.0);
         } else {
@@ -151,17 +320,17 @@ pub fn paint(p: &Painter, m: &WheelModel, pal: &Palette) {
             for k in 0..3 {
                 let t = (m.phase * 2.4 - k as f32 * 0.18).rem_euclid(1.0);
                 let hop = if t < 0.5 { (t * 2.0 * std::f32::consts::PI).sin().max(0.0) } else { 0.0 };
-                p.fill_circle(c - 8.0 + k as f32 * 8.0, c - 4.0 - hop * 4.5, 2.4, ACCENT.alpha(0.55 + 0.45 * hop));
+                p.fill_circle(c - 8.0 + k as f32 * 8.0, c - 4.0 - hop * 4.5, 2.4, accent.alpha(0.55 + 0.45 * hop));
             }
             p.text_centered(&item.title(), c, c + 10.0, 7.5, Weight::Semibold, pal.secondary);
             return;
         }
         match size {
             Some(text) => {
-                p.text_centered(text, c, c - 5.0, if text.chars().count() > 8 { 10.0 } else { 11.5 }, Weight::Bold, ACCENT);
+                p.text_centered(text, c, c - 5.0, if text.chars().count() > 8 { 10.0 } else { 11.5 }, Weight::Bold, accent);
                 p.text_centered(&item.title(), c, c + 10.0, 7.5, Weight::Semibold, pal.secondary);
             }
-            None => p.text_centered(&item.title(), c, c, 9.5, Weight::Bold, ACCENT),
+            None => p.text_centered(&item.title(), c, c, 9.5, Weight::Bold, accent),
         }
     } else if !m.hub.is_empty() {
         let n = m.hub.len() as f32;
@@ -186,13 +355,17 @@ impl State {
     }
 }
 
-/// Liquid Glass: blur what is behind the wheel's disc (none for the invisible probe).
-fn glass(hwnd: HWND, backdrop: &Backdrop, s: &State) {
+/// Liquid Glass: a blurred copy of what is behind the wheel, taken as it appears (the
+/// system blur can't follow a round window, so the wheel blurs it itself).
+fn glass(s: &mut State) {
+    s.behind = None;
     if s.palette.glass && !s.probing && s.visible {
-        let r = (WheelGeometry::default().backdrop as f32 * s.scale).round() as i32;
-        backdrop.show(hwnd, s.anchor.0 - r, s.anchor.1 - r, 2 * r, 2 * r, r);
-    } else {
-        backdrop.hide();
+        let px = size_px(s.scale);
+        let (x, y) = s.origin();
+        if let Some(mut img) = super::gfx::capture_screen(x, y, px, px) {
+            super::gfx::blur_rgba(&mut img, px as usize, px as usize, 9.0 * s.scale);
+            s.behind = Some((img, px as u32, px as u32));
+        }
     }
 }
 
@@ -203,7 +376,7 @@ fn render(hwnd: HWND, s: &State) {
         surface.draw(1.0, |_| {});
         surface.fill_transparent(1);
     } else {
-        surface.draw(s.scale, |p| paint(p, &s.model, &s.palette));
+        surface.draw(s.scale, |p| paint(p, &s.model, &s.palette, s.behind.as_ref(), s.scale));
     }
     let (x, y) = s.origin();
     surface.present(hwnd, x, y, 255);
@@ -214,6 +387,10 @@ fn set_selected(hwnd: HWND, s: &mut State, sel: Option<usize>) {
     if s.model.selected == sel {
         return;
     }
+    s.model.motion = match (s.model.selected, sel) {
+        (Some(old), Some(_)) => Some((old, std::time::Instant::now())),
+        _ => None,
+    };
     s.model.selected = sel;
     if sel.is_some() && s.model.feedback {
         system::highlight_feedback();
@@ -382,6 +559,7 @@ impl WheelWindow {
             probing: false,
             files: Vec::new(),
             palette: Palette::current(),
+            behind: None,
             started: std::time::Instant::now(),
         }));
         let hwnd = window::create(
@@ -399,7 +577,7 @@ impl WheelWindow {
         if let Err(e) = droptarget::register(hwnd, drops) {
             debug!("RegisterDragDrop failed: {e}");
         }
-        WheelWindow { hwnd, state, backdrop: Backdrop::new() }
+        WheelWindow { hwnd, state }
     }
 
     fn place(&self, at: Point, keyboard: bool) {
@@ -415,7 +593,7 @@ impl WheelWindow {
         );
         s.anchor = ((anchor.x * sc).round() as i32, (anchor.y * sc).round() as i32);
         s.visible = true;
-        glass(self.hwnd, &self.backdrop, &s);
+        glass(&mut s);
         render(self.hwnd, &s);
         unsafe {
             let _ = SetWindowPos(self.hwnd, Some(HWND_TOPMOST), 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW);
@@ -440,7 +618,7 @@ impl WheelWindow {
         let mut s = self.state.borrow_mut();
         s.scale = system::scale_at(at.0, at.1);
         s.visible = true;
-        glass(self.hwnd, &self.backdrop, &s);
+        glass(&mut s);
         render(self.hwnd, &s);
         drop(s);
         unsafe {
@@ -499,7 +677,6 @@ impl WheelWindow {
             s.probing = false;
             s.model.keyboard = false;
         }
-        self.backdrop.hide();
         unsafe {
             let _ = ShowWindow(self.hwnd, SW_HIDE);
         }
@@ -527,7 +704,14 @@ impl WheelWindow {
             && !s.probing
             && s.model.estimating
             && s.model.selected.and_then(|i| s.model.items.get(i)).is_some_and(|item| !s.model.estimates.contains_key(item));
-        if waiting {
+        let flowing = s.visible && !s.probing && moving(&s.model);
+        if !flowing && s.model.motion.is_some() && !moving(&s.model) {
+            s.model.motion = None;
+            if s.visible && !s.probing {
+                render(self.hwnd, &s);
+            }
+        }
+        if waiting || flowing {
             s.model.phase = s.started.elapsed().as_secs_f32();
             render(self.hwnd, &s);
         }
@@ -557,6 +741,6 @@ pub fn render_png(model: &WheelModel, dark: bool, out: &std::path::Path) -> Resu
     let px = size_px(scale);
     let surface = Surface::new(px, px).map_err(|e| e.message())?;
     let pal = Palette::for_appearance(super::render_theme(), dark);
-    surface.draw(scale, |p| paint(p, model, &pal));
+    surface.draw(scale, |p| paint(p, model, &pal, None, scale));
     super::gfx::save_png(&surface.rgba(), px as u32, px as u32, out)
 }

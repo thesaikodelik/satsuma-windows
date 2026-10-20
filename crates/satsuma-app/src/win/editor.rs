@@ -140,10 +140,10 @@ impl PillMotion {
 }
 
 /// How long a pill motion runs before it is considered settled.
-const PILL_SECONDS: f32 = 1.3;
+pub(super) const PILL_SECONDS: f32 = 1.3;
 
 /// Windows "Animation effects" is off: use a short ease-out instead of the spring.
-fn calm() -> bool {
+pub(super) fn calm() -> bool {
     let mut on = windows::core::BOOL(1);
     unsafe {
         let _ = SystemParametersInfoW(SPI_GETCLIENTAREAANIMATION, 0, Some(&mut on as *mut _ as *mut _), SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS(0));
@@ -153,7 +153,7 @@ fn calm() -> bool {
 
 /// Progress 0 → 1 (overshooting a little) of an underdamped spring with SwiftUI's
 /// response 0.55 s and damping 0.78, the values 30nama uses.
-fn spring(t: f32) -> f32 {
+pub(super) fn spring(t: f32) -> f32 {
     if calm() {
         let x = (t / 0.18).min(1.0);
         return 1.0 - (1.0 - x).powi(3);

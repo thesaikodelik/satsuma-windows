@@ -12,7 +12,7 @@ pub fn set_appearance(a: Appearance) {
 }
 
 pub fn appearance() -> Appearance {
-    let a = Appearance::ALL[(APPEARANCE.load(Ordering::Relaxed) as usize).min(2)];
+    let a = Appearance::ALL[(APPEARANCE.load(Ordering::Relaxed) as usize).min(Appearance::ALL.len() - 1)];
     // Blur behind windows needs Windows 10 1809 or later.
     if a != Appearance::Solid && !super::system::supports_blur() {
         return Appearance::Solid;
@@ -30,6 +30,8 @@ pub struct Palette {
     pub glass: bool,
     /// The 1 px light rim around glass layers (Tachyon's "highlight").
     pub rim: Rgba,
+    /// 30nama's drawn glass: glare and gradient rims, a white lit pill instead of orange.
+    pub nama: bool,
     /// The frosted disc behind the petals (`windowBackgroundColor`).
     pub backdrop: Rgba,
     pub separator: Rgba,
@@ -50,6 +52,7 @@ impl Palette {
                 dark,
                 glass: false,
                 rim: Rgba(1.0, 1.0, 1.0, 0.0),
+                nama: false,
                 backdrop: Rgba::hex(0x202020, 0.80),
                 separator: Rgba(1.0, 1.0, 1.0, 0.14),
                 control: Rgba::hex(0x3a3a3a, 1.0),
@@ -64,6 +67,7 @@ impl Palette {
                 dark,
                 glass: false,
                 rim: Rgba(1.0, 1.0, 1.0, 0.0),
+                nama: false,
                 backdrop: Rgba::hex(0xf3f3f3, 0.78),
                 separator: Rgba(0.0, 0.0, 0.0, 0.13),
                 control: Rgba::hex(0xffffff, 1.0),
@@ -83,6 +87,7 @@ impl Palette {
             dark: false,
             glass: true,
             rim: Rgba(1.0, 1.0, 1.0, 0.80),
+            nama: false,
             backdrop: Rgba(1.0, 1.0, 1.0, 0.25),
             separator: ink(0.08),
             control: Rgba(1.0, 1.0, 1.0, 0.35),
@@ -101,6 +106,7 @@ impl Palette {
             dark: true,
             glass: true,
             rim: ink(0.25),
+            nama: false,
             backdrop: Rgba::hex(0x101014, 0.75),
             separator: ink(0.12),
             control: ink(0.06),
@@ -112,10 +118,30 @@ impl Palette {
         }
     }
 
+    /// 30nama's glass (dark-only): acrylic tint `#1A1C22` at 55 %, warm white text.
+    pub fn nama_glass() -> Palette {
+        let text = |a: f32| Rgba::hex(0xF4F1EA, a);
+        Palette {
+            dark: true,
+            glass: true,
+            rim: Rgba(1.0, 1.0, 1.0, 0.14),
+            nama: true,
+            backdrop: Rgba::hex(0x1A1C22, 0.55),
+            separator: Rgba(1.0, 1.0, 1.0, 0.10),
+            control: Rgba(1.0, 1.0, 1.0, 0.04),
+            label: text(1.0),
+            secondary: text(0.70),
+            tertiary: text(0.45),
+            error: Rgba::hex(0xF0454A, 1.0),
+            panel: Rgba::hex(0x1A1C22, 0.55),
+        }
+    }
+
     pub fn current() -> Palette {
         match appearance() {
             Appearance::LiquidGlass => Palette::liquid_glass(),
             Appearance::LiquidSmoke => Palette::liquid_smoke(),
+            Appearance::NamaGlass => Palette::nama_glass(),
             Appearance::Solid => Palette::new(super::system::is_dark()),
         }
     }
@@ -125,6 +151,7 @@ impl Palette {
         match a {
             Appearance::LiquidGlass => Palette::liquid_glass(),
             Appearance::LiquidSmoke => Palette::liquid_smoke(),
+            Appearance::NamaGlass => Palette::nama_glass(),
             Appearance::Solid => Palette::new(dark),
         }
     }

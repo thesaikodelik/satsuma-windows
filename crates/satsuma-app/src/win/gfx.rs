@@ -285,6 +285,24 @@ impl Painter {
         }
     }
 
+    /// A rounded rectangle filled (or, with `stroke`, outlined) with a linear gradient
+    /// whose stops are `(position, colour)`.
+    #[allow(clippy::too_many_arguments)]
+    pub fn round_rect_gradient(&self, x: f32, y: f32, w: f32, h: f32, r: f32, stops: &[(f32, Rgba)], start: (f32, f32), end: (f32, f32), stroke: Option<f32>) {
+        let gs: Vec<D2D1_GRADIENT_STOP> = stops.iter().map(|(pos, c)| D2D1_GRADIENT_STOP { position: *pos, color: c.d2d() }).collect();
+        let rr = D2D1_ROUNDED_RECT { rect: D2D_RECT_F { left: x, top: y, right: x + w, bottom: y + h }, radiusX: r, radiusY: r };
+        unsafe {
+            let Ok(collection) = self.rt.CreateGradientStopCollection(&gs, D2D1_GAMMA_2_2, D2D1_EXTEND_MODE_CLAMP) else { return };
+            let props = D2D1_LINEAR_GRADIENT_BRUSH_PROPERTIES { startPoint: D2D_POINT_2F { X: start.0, Y: start.1 }, endPoint: D2D_POINT_2F { X: end.0, Y: end.1 } };
+            if let Ok(brush) = self.rt.CreateLinearGradientBrush(&props, None, &collection) {
+                match stroke {
+                    Some(width) => self.rt.DrawRoundedRectangle(&rr, &brush, width, None),
+                    None => self.rt.FillRoundedRectangle(&rr, &brush),
+                }
+            }
+        }
+    }
+
     pub fn stroke_round_rect(&self, x: f32, y: f32, w: f32, h: f32, r: f32, c: Rgba, width: f32) {
         let rr = D2D1_ROUNDED_RECT { rect: D2D_RECT_F { left: x, top: y, right: x + w, bottom: y + h }, radiusX: r, radiusY: r };
         unsafe { self.rt.DrawRoundedRectangle(&rr, &self.brush(c), width, None) }
@@ -300,37 +318,31 @@ impl Painter {
     }
 
     /// Capsules melted together like liquid (30nama's pill): each piece is a capsule, and
-    /// pieces closer than `reach` merge with a smooth union. Drawn into `area` with a fill
-    /// and a 1 px rim, at `scale` pixels per DIP. Pieces are in DIPs.
+    /// pieces closer than `REACH` merge with a smooth union. Pieces are in DIPs.
     pub fn liquid(&self, area: (f32, f32, f32, f32), pieces: &[(f32, f32, f32, f32)], fill: Rgba, rim: Rgba, scale: f32) {
-        const REACH: f32 = 11.0;
+        let pieces: Vec<_> = pieces.iter().copied().filter(|p| p.2 > 0.5 && p.3 > 0.5).collect();
+        self.sdf_fill(area, scale, fill, rim, &|x, y| {
+            pieces.iter().map(|p| capsule_sdf(x, y, *p)).reduce(smooth_union).unwrap_or(f32::MAX)
+        });
+    }
+
+    /// Fills the shape `sdf` describes (signed distance in DIPs, negative inside) within
+    /// `area`, anti-aliased, with a 1.2 DIP rim, rendered at `scale` pixels per DIP.
+    pub fn sdf_fill(&self, area: (f32, f32, f32, f32), scale: f32, fill: Rgba, rim: Rgba, sdf: &dyn Fn(f32, f32) -> f32) {
+        self.sdf_fill_lit(area, scale, &|_| (fill, rim), sdf);
+    }
+
+    /// Like [`Painter::sdf_fill`], with the fill and rim colours given per DIP row (`y`).
+    pub fn sdf_fill_lit(&self, area: (f32, f32, f32, f32), scale: f32, colors: &dyn Fn(f32) -> (Rgba, Rgba), sdf: &dyn Fn(f32, f32) -> f32) {
         const RIM: f32 = 1.2;
         let (w, h) = ((area.2 * scale).ceil().max(1.0) as u32, (area.3 * scale).ceil().max(1.0) as u32);
-        // Signed distance to a capsule (a rounded box with fully round ends).
-        let capsule = |x: f32, y: f32, r: (f32, f32, f32, f32)| {
-            let rad = r.2.min(r.3) / 2.0;
-            let (cx, cy) = (r.0 + r.2 / 2.0, r.1 + r.3 / 2.0);
-            let qx = (x - cx).abs() - (r.2 / 2.0 - rad);
-            let qy = (y - cy).abs() - (r.3 / 2.0 - rad);
-            let outside = (qx.max(0.0).powi(2) + qy.max(0.0).powi(2)).sqrt();
-            outside + qx.max(qy).min(0.0) - rad
-        };
-        let join = |a: f32, b: f32| {
-            let k = ((REACH - (a - b).abs()).max(0.0)) / REACH;
-            a.min(b) - k * k * REACH / 4.0
-        };
         let mut rgba = vec![0u8; (w * h * 4) as usize];
         for py in 0..h {
+            let row_y = area.1 + (py as f32 + 0.5) / scale;
+            let (fill, rim) = colors(row_y);
             for px in 0..w {
-                let (x, y) = (area.0 + (px as f32 + 0.5) / scale, area.1 + (py as f32 + 0.5) / scale);
-                let mut d = f32::MAX;
-                for p in pieces.iter().filter(|p| p.2 > 0.5 && p.3 > 0.5) {
-                    let pd = capsule(x, y, *p);
-                    d = if d == f32::MAX { pd } else { join(d, pd) };
-                }
-                if d == f32::MAX {
-                    continue;
-                }
+                let (x, y) = (area.0 + (px as f32 + 0.5) / scale, row_y);
+                let d = sdf(x, y);
                 let cover = (0.5 - d * scale).clamp(0.0, 1.0);
                 if cover <= 0.0 {
                     continue;
@@ -348,6 +360,34 @@ impl Painter {
             }
         }
         self.image(&rgba, w, h, area);
+    }
+
+    /// Fills a rounded rectangle (a circle when `r` is half its size) with an image stretched
+    /// over `rect` — used to lay the blurred backdrop exactly inside a glass shape.
+    pub fn fill_round_rect_image(&self, rect: (f32, f32, f32, f32), r: f32, image_rect: (f32, f32, f32, f32), rgba: &[u8], w: u32, h: u32) {
+        let mut pre = Vec::with_capacity(rgba.len());
+        for p in rgba.chunks_exact(4) {
+            let a = p[3] as u32;
+            let m = |c: u8| ((c as u32 * a + 127) / 255) as u8;
+            pre.extend_from_slice(&[m(p[2]), m(p[1]), m(p[0]), p[3]]);
+        }
+        let props = D2D1_BITMAP_PROPERTIES {
+            pixelFormat: D2D1_PIXEL_FORMAT { format: DXGI_FORMAT_B8G8R8A8_UNORM, alphaMode: D2D1_ALPHA_MODE_PREMULTIPLIED },
+            dpiX: 96.0,
+            dpiY: 96.0,
+        };
+        unsafe {
+            let Ok(bmp) = self.rt.CreateBitmap(D2D_SIZE_U { width: w, height: h }, Some(pre.as_ptr() as *const _), w * 4, &props) else { return };
+            let bp = D2D1_BITMAP_BRUSH_PROPERTIES {
+                extendModeX: D2D1_EXTEND_MODE_CLAMP,
+                extendModeY: D2D1_EXTEND_MODE_CLAMP,
+                interpolationMode: D2D1_BITMAP_INTERPOLATION_MODE_LINEAR,
+            };
+            let Ok(brush) = self.rt.CreateBitmapBrush(&bmp, Some(&bp), None) else { return };
+            brush.SetTransform(&Matrix3x2 { M11: image_rect.2 / w as f32, M12: 0.0, M21: 0.0, M22: image_rect.3 / h as f32, M31: image_rect.0, M32: image_rect.1 });
+            let rr = D2D1_ROUNDED_RECT { rect: D2D_RECT_F { left: rect.0, top: rect.1, right: rect.0 + rect.2, bottom: rect.1 + rect.3 }, radiusX: r, radiusY: r };
+            self.rt.FillRoundedRectangle(&rr, &brush);
+        }
     }
 
     /// Width of one line of text in DIPs.
@@ -445,6 +485,102 @@ fn text_format(family: &str, size: f32, weight: Weight, wrap: bool) -> Option<ID
         f.formats.borrow_mut().insert(key, fmt.clone());
         Some(fmt)
     })
+}
+
+/// How far apart two liquid pieces can be and still melt together (30nama's `Reach`).
+pub const REACH: f32 = 11.0;
+
+/// Smooth minimum of two signed distances: shapes closer than `REACH` merge.
+pub fn smooth_union(a: f32, b: f32) -> f32 {
+    let k = ((REACH - (a - b).abs()).max(0.0)) / REACH;
+    a.min(b) - k * k * REACH / 4.0
+}
+
+/// Signed distance to a capsule (a rounded box with fully round ends).
+pub fn capsule_sdf(x: f32, y: f32, r: (f32, f32, f32, f32)) -> f32 {
+    let rad = r.2.min(r.3) / 2.0;
+    let (cx, cy) = (r.0 + r.2 / 2.0, r.1 + r.3 / 2.0);
+    let qx = (x - cx).abs() - (r.2 / 2.0 - rad);
+    let qy = (y - cy).abs() - (r.3 / 2.0 - rad);
+    let outside = (qx.max(0.0).powi(2) + qy.max(0.0).powi(2)).sqrt();
+    outside + qx.max(qy).min(0.0) - rad
+}
+
+/// What is on screen in a rectangle (pixels), as straight RGBA.
+pub fn capture_screen(x: i32, y: i32, w: i32, h: i32) -> Option<Vec<u8>> {
+    if w <= 0 || h <= 0 {
+        return None;
+    }
+    unsafe {
+        let screen = GetDC(None);
+        let mem = CreateCompatibleDC(Some(screen));
+        let bmp = CreateCompatibleBitmap(screen, w, h);
+        let old = SelectObject(mem, bmp.into());
+        let ok = BitBlt(mem, 0, 0, w, h, Some(screen), x, y, SRCCOPY).is_ok();
+        let mut info = BITMAPINFO {
+            bmiHeader: BITMAPINFOHEADER {
+                biSize: std::mem::size_of::<BITMAPINFOHEADER>() as u32,
+                biWidth: w,
+                biHeight: -h,
+                biPlanes: 1,
+                biBitCount: 32,
+                biCompression: BI_RGB.0,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let mut buf = vec![0u8; (w * h * 4) as usize];
+        let rows = GetDIBits(mem, bmp, 0, h as u32, Some(buf.as_mut_ptr() as *mut _), &mut info, DIB_RGB_COLORS);
+        SelectObject(mem, old);
+        let _ = DeleteObject(bmp.into());
+        let _ = DeleteDC(mem);
+        ReleaseDC(None, screen);
+        if !ok || rows == 0 {
+            return None;
+        }
+        for p in buf.chunks_exact_mut(4) {
+            p.swap(0, 2);
+            p[3] = 255;
+        }
+        Some(buf)
+    }
+}
+
+/// A Gaussian-like blur (three box passes) of RGBA pixels, with a little extra saturation
+/// so glass looks lively rather than grey.
+pub fn blur_rgba(px: &mut [u8], w: usize, h: usize, sigma: f32) {
+    let ideal = ((12.0 * sigma * sigma / 3.0) + 1.0).sqrt();
+    let r = (((ideal - 1.0) / 2.0).floor().max(1.0)) as usize;
+    let mut a: Vec<[f32; 3]> = px.chunks_exact(4).map(|p| [p[0] as f32, p[1] as f32, p[2] as f32]).collect();
+    let mut b = a.clone();
+    let pass = |src: &[[f32; 3]], dst: &mut [[f32; 3]], horizontal: bool| {
+        let (len, lines) = if horizontal { (w, h) } else { (h, w) };
+        let idx = |line: usize, i: usize| if horizontal { line * w + i } else { i * w + line };
+        let norm = 1.0 / (2 * r + 1) as f32;
+        for line in 0..lines {
+            let at = |i: isize| src[idx(line, i.clamp(0, len as isize - 1) as usize)];
+            let mut acc = [0f32; 3];
+            for i in -(r as isize)..=(r as isize) {
+                let p = at(i);
+                acc = [acc[0] + p[0], acc[1] + p[1], acc[2] + p[2]];
+            }
+            for i in 0..len as isize {
+                dst[idx(line, i as usize)] = [acc[0] * norm, acc[1] * norm, acc[2] * norm];
+                let (add, sub) = (at(i + r as isize + 1), at(i - r as isize));
+                acc = [acc[0] + add[0] - sub[0], acc[1] + add[1] - sub[1], acc[2] + add[2] - sub[2]];
+            }
+        }
+    };
+    for _ in 0..3 {
+        pass(&a, &mut b, true);
+        pass(&b, &mut a, false);
+    }
+    for (p, c) in px.chunks_exact_mut(4).zip(a) {
+        let l = 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+        for k in 0..3 {
+            p[k] = (l + (c[k] - l) * 1.25).round().clamp(0.0, 255.0) as u8;
+        }
+    }
 }
 
 /// Writes straight RGBA pixels as a PNG (for `render-wheel` and friends).

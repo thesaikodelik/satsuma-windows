@@ -615,12 +615,3 @@ pub fn set_blur(hwnd: HWND, on: bool) {
         f(hwnd, &mut data);
     }
 }
-
-/// Limits a window to an ellipse or rounded rectangle (pixels, window coordinates); `None` clears it.
-pub fn set_region(hwnd: HWND, shape: Option<(i32, i32, i32, i32, i32)>) {
-    unsafe {
-        let rgn = shape.map(|(x, y, w, h, r)| if r * 2 >= w.min(h) { CreateEllipticRgn(x, y, x + w + 1, y + h + 1) } else { CreateRoundRectRgn(x, y, x + w + 1, y + h + 1, r * 2, r * 2) });
-        // The system owns the region afterwards.
-        SetWindowRgn(hwnd, rgn, true);
-    }
-}

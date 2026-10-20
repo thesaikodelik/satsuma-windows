@@ -2,7 +2,6 @@
 //! a × that cancels the job. Click-through except for the ×.
 
 use super::events::{self, Point, UiEvent};
-use super::backdrop::Backdrop;
 use super::gfx::{Align, Painter, Surface, Weight};
 use super::theme::{Palette, ACCENT};
 use super::window::{self, Handler};
@@ -31,17 +30,29 @@ struct State {
     origin: Point,
     scale: f32,
     visible: bool,
+    behind: Option<(Vec<u8>, u32, u32)>,
 }
 
 pub struct Hud {
     hwnd: HWND,
     state: Rc<RefCell<State>>,
-    backdrop: Backdrop,
 }
 
-fn paint(p: &Painter, m: &HudModel, pal: &Palette) {
+fn paint(p: &Painter, m: &HudModel, pal: &Palette, behind: Option<&(Vec<u8>, u32, u32)>) {
     let (x, y) = (MARGIN, MARGIN);
-    if pal.glass {
+    if let (true, Some((px, w, h))) = (pal.glass, behind) {
+        p.fill_round_rect_image((x, y, WIDTH, HEIGHT), 14.0, (0.0, 0.0, WIDTH + MARGIN * 2.0, HEIGHT + MARGIN * 2.0), px, *w, *h);
+    }
+    if pal.nama {
+        // 30nama's drawn glass: tint, faint body, glare from above, lit rim.
+        let white = |a: f32| super::gfx::Rgba(1.0, 1.0, 1.0, a);
+        p.fill_round_rect(x, y, WIDTH, HEIGHT, 14.0, pal.panel);
+        p.fill_round_rect(x, y, WIDTH, HEIGHT, 14.0, white(0.02));
+        let glare = [(0.0, white(0.12)), (0.5, white(0.02)), (0.7, white(0.0)), (1.0, white(0.04))];
+        p.round_rect_gradient(x, y, WIDTH, HEIGHT, 14.0, &glare, (x, y), (x, y + HEIGHT), None);
+        let rim = [(0.0, white(0.55)), (1.0 / 3.0, white(0.12)), (2.0 / 3.0, white(0.05)), (1.0, white(0.22))];
+        p.round_rect_gradient(x + 0.6, y + 0.6, WIDTH - 1.2, HEIGHT - 1.2, 13.4, &rim, (x, y), (x, y + HEIGHT), Some(1.2));
+    } else if pal.glass {
         // Glass: the blur shows through a light tint; a bright rim instead of a shadow.
         p.fill_round_rect(x, y, WIDTH, HEIGHT, 14.0, pal.panel);
         p.stroke_round_rect(x + 0.5, y + 0.5, WIDTH - 1.0, HEIGHT - 1.0, 13.5, pal.rim, 1.0);
@@ -75,18 +86,23 @@ fn render(hwnd: HWND, s: &State) {
     let (w, h) = (((WIDTH + MARGIN * 2.0) * s.scale).ceil() as i32, ((HEIGHT + MARGIN * 2.0) * s.scale).ceil() as i32);
     let Ok(surface) = Surface::new(w, h) else { return };
     let pal = Palette::current();
-    surface.draw(s.scale, |p| paint(p, &s.model, &pal));
+    surface.draw(s.scale, |p| paint(p, &s.model, &pal, s.behind.as_ref()));
     surface.present(hwnd, s.origin.0, s.origin.1, 255);
 }
 
-/// The blur under the panel (Liquid Glass), or none.
-fn glass(hwnd: HWND, backdrop: &Backdrop, s: &State) {
-    if Palette::current().glass && s.visible {
-        let m = (MARGIN * s.scale).round() as i32;
-        let (w, h, r) = ((WIDTH * s.scale).round() as i32, (HEIGHT * s.scale).round() as i32, (14.0 * s.scale).round() as i32);
-        backdrop.show(hwnd, s.origin.0 + m, s.origin.1 + m, w, h, r);
-    } else {
-        backdrop.hide();
+/// Liquid Glass: a blurred copy of what is behind the panel, taken as it appears.
+fn glass(hwnd: HWND, s: &mut State) {
+    s.behind = None;
+    if Palette::current().glass {
+        let (w, h) = (((WIDTH + MARGIN * 2.0) * s.scale).ceil() as i32, ((HEIGHT + MARGIN * 2.0) * s.scale).ceil() as i32);
+        unsafe {
+            // Not the panel itself.
+            let _ = ShowWindow(hwnd, SW_HIDE);
+        }
+        if let Some(mut img) = super::gfx::capture_screen(s.origin.0, s.origin.1, w, h) {
+            super::gfx::blur_rgba(&mut img, w as usize, h as usize, 9.0 * s.scale);
+            s.behind = Some((img, w as u32, h as u32));
+        }
     }
 }
 
@@ -120,7 +136,7 @@ impl Handler for Messages {
 
 impl Hud {
     pub fn new() -> Hud {
-        let state = Rc::new(RefCell::new(State { model: HudModel::default(), origin: (0, 0), scale: 1.0, visible: false }));
+        let state = Rc::new(RefCell::new(State { model: HudModel::default(), origin: (0, 0), scale: 1.0, visible: false, behind: None }));
         let hwnd = window::create(
             WS_EX_LAYERED | WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE,
             WS_POPUP,
@@ -132,7 +148,7 @@ impl Hud {
             None,
             Rc::new(Messages { state: state.clone() }),
         );
-        Hud { hwnd, state, backdrop: Backdrop::new() }
+        Hud { hwnd, state }
     }
 
     /// Shows the panel below the wheel position `near` (or above it near the screen bottom).
@@ -155,11 +171,11 @@ impl Hud {
         s.origin = (x - m, y - m);
         s.model = model;
         s.visible = true;
+        glass(self.hwnd, &mut s);
         render(self.hwnd, &s);
         unsafe {
             let _ = SetWindowPos(self.hwnd, Some(HWND_TOPMOST), 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW);
         }
-        glass(self.hwnd, &self.backdrop, &s);
     }
 
     pub fn update(&self, model: HudModel) {
@@ -172,7 +188,6 @@ impl Hud {
 
     pub fn hide(&self) {
         self.state.borrow_mut().visible = false;
-        self.backdrop.hide();
         unsafe {
             let _ = ShowWindow(self.hwnd, SW_HIDE);
         }
