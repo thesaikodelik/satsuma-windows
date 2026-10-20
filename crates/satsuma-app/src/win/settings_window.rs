@@ -94,6 +94,8 @@ struct State {
     dragging: bool,
     preview: WheelModel,
     scale: f32,
+    /// When the how-to animation started.
+    tutorial: Instant,
 }
 
 /// Rows hold a label on the left and a control on the right.
@@ -102,7 +104,7 @@ const CONTROL_W: f32 = 220.0;
 const CONTROL_X: f32 = W - 20.0 - CONTROL_W;
 const PREVIEW_Y: f32 = 54.0;
 /// The sound switch's row on the Shortcuts tab.
-const SOUND_Y: f32 = 418.0;
+const SOUND_Y: f32 = 424.0;
 
 fn row(y: f32) -> R {
     (CONTROL_X, y, CONTROL_W, 30.0)
@@ -176,7 +178,7 @@ impl State {
     }
 
     fn moving(&self) -> bool {
-        self.pill.is_some_and(|(_, _, t)| t.elapsed().as_secs_f32() < PILL_SECONDS) || self.preview.liquid.moving()
+        self.tab == SHORTCUTS || self.pill.is_some_and(|(_, _, t)| t.elapsed().as_secs_f32() < PILL_SECONDS) || self.preview.liquid.moving()
     }
 
     /// Applies the settings everywhere at once and tells the app to save them.
@@ -193,6 +195,9 @@ impl State {
         }
         match g {
             Group::Tabs => {
+                if i == SHORTCUTS && self.tab != SHORTCUTS {
+                    self.tutorial = Instant::now();
+                }
                 self.tab = i;
                 return;
             }
@@ -315,7 +320,6 @@ impl State {
                 }
                 header("HOW IT WORKS", 214.0);
                 self.paint_tutorial(p, pal, 240.0);
-                note("Tapping another key switches wheels. Drop in the middle to cancel.", 384.0, 20.0);
                 label("Sound when a petal lights up", SOUND_Y);
                 self.paint_toggle(p, pal, Toggle::Sound, self.settings.feedback);
             }
@@ -349,67 +353,141 @@ impl State {
         }
     }
 
-    /// Three line drawings: drag files, tap the key once, drop on a petal.
+    /// The animated how-to: a pointer drags a document, the wheel key is tapped once while
+    /// the click is held, and the file is dropped on a petal. Loops every `LOOP` seconds.
     fn paint_tutorial(&self, p: &Painter, pal: &Palette, top: f32) {
+        const LOOP: f32 = 6.0;
+        let t = self.tutorial.elapsed().as_secs_f32() % LOOP;
         let ink = pal.secondary;
-        let faint = pal.tertiary;
-        let panel_w = (W - 40.0 - 2.0 * 12.0) / 3.0;
-        let key = self.settings.wheels.conversions.label();
-        let captions = ["Drag files".to_string(), format!("Tap {key} once"), "Drop on a petal".to_string()];
-        for (i, caption) in captions.iter().enumerate() {
-            let x = 20.0 + i as f32 * (panel_w + 12.0);
-            let (cx, cy) = (x + panel_w / 2.0, top + 54.0);
-            // A soft card behind each step.
-            p.fill_round_rect(x, top, panel_w, 136.0, 14.0, if pal.glass { pal.control } else { pal.separator.alpha(0.35) });
-            if pal.glass {
-                p.stroke_round_rect(x + 0.5, top + 0.5, panel_w - 1.0, 135.0, 13.5, pal.rim, 1.0);
-            }
-            match i {
-                0 => {
-                    // A file being carried off by the pointer, with a motion trail.
-                    draw_document(p, cx - 26.0, cy - 30.0, 34.0, 44.0, ink);
-                    for k in 0..4 {
-                        p.fill_circle(cx - 4.0 + k as f32 * 7.0, cy + 18.0 + k as f32 * 3.0, 1.4, faint);
-                    }
-                    draw_document(p, cx + 6.0, cy - 6.0, 26.0, 33.0, ACCENT.alpha(0.9));
-                    draw_cursor(p, cx + 22.0, cy + 18.0, ink, pal);
-                }
-                1 => {
-                    // A key pressed once.
-                    let (kw, kh) = (if key.len() > 5 { 82.0 } else { 64.0 }, 40.0);
-                    p.stroke_round_rect(cx - kw / 2.0, cy - kh / 2.0 + 6.0, kw, kh, 9.0, faint, 1.2);
-                    p.stroke_round_rect(cx - kw / 2.0, cy - kh / 2.0, kw, kh, 9.0, ink, 1.6);
-                    p.text(&key, (cx - kw / 2.0, cy - kh / 2.0, kw, kh), 12.0, Weight::Semibold, pal.label, Align::Center, false);
-                    // Tap marks above the key.
-                    for (dx, len) in [(-16.0f32, 7.0f32), (0.0, 9.0), (16.0, 7.0)] {
-                        let (x0, y0) = (cx + dx, cy - kh / 2.0 - 8.0);
-                        let ang = dx.atan2(28.0);
-                        p.line(x0 + ang.sin() * 2.0, y0, x0 + ang.sin() * (2.0 + len), y0 - len * ang.cos(), ACCENT, 1.8);
-                    }
-                    p.text("× 1", (cx - 30.0, cy + kh / 2.0 + 4.0, 60.0, 18.0), 11.0, Weight::Semibold, ACCENT, Align::Center, false);
-                }
-                _ => {
-                    // A small wheel with one petal lit, and the pointer on it.
-                    let (ro, ri) = (34.0, 13.0);
-                    p.stroke_circle(cx, cy, ro, ink, 1.4);
-                    p.stroke_circle(cx, cy, ri, ink, 1.2);
-                    for k in 0..6 {
-                        let a = std::f32::consts::PI / 2.0 + std::f32::consts::PI / 6.0 + k as f32 * std::f32::consts::PI / 3.0;
-                        p.line(cx + ri * a.cos(), cy - ri * a.sin(), cx + ro * a.cos(), cy - ro * a.sin(), ink, 1.2);
-                    }
-                    // The lit petal (top right).
-                    let g = satsuma_core::geometry::WheelGeometry { inner: ri as f64 + 1.5, outer: ro as f64 - 1.5, gap: 2.0, outer_corner: 4.0, inner_corner: 2.0, backdrop: ro as f64 };
-                    if let Some(geo) = p.path(&g.petal_path(1, 6), cx, cy) {
-                        p.fill_geometry(&geo, ACCENT.alpha(0.9));
-                    }
-                    draw_cursor(p, cx + 16.0, cy - 14.0, ink, pal);
-                }
-            }
-            // The step number and its caption.
-            p.fill_circle(x + 16.0, top + 16.0, 9.0, ACCENT);
-            p.text(&(i + 1).to_string(), (x + 7.0, top + 7.0, 18.0, 18.0), 10.5, Weight::Bold, Rgba::WHITE, Align::Center, false);
-            p.text(caption, (x + 4.0, top + 104.0, panel_w - 8.0, 22.0), 11.5, Weight::Semibold, pal.label, Align::Center, false);
+        let (x0, y0, w, h) = (20.0, top, W - 40.0, 140.0);
+        // The stage.
+        p.fill_round_rect(x0, y0, w, h, 16.0, if pal.glass { pal.control } else { pal.separator.alpha(0.35) });
+        if pal.glass {
+            p.stroke_round_rect(x0 + 0.5, y0 + 0.5, w - 1.0, h - 1.0, 15.5, pal.rim, 1.0);
         }
+        // Fade the whole scene in and out around the loop.
+        let fade = (t / 0.3).min(1.0).min(((LOOP - t) / 0.4).min(1.0)).max(0.0);
+        let ink = ink.alpha(fade);
+        let accent = ACCENT.alpha(fade);
+
+        let doc_home = (x0 + 46.0, y0 + 30.0);
+        let doc_size = (30.0, 38.0);
+        let doc_mid = (doc_home.0 + doc_size.0 / 2.0, doc_home.1 + doc_size.1 / 2.0);
+        let wheel_c = (x0 + w * 0.62, y0 + 62.0);
+        let petal = 1usize;
+        let geo_r = |s: f32| WheelGeometry { inner: (14.0 * s) as f64, outer: (44.0 * s) as f64, gap: 2.5, outer_corner: 6.0 * s as f64, inner_corner: 2.5, backdrop: (47.0 * s) as f64 };
+        let petal_mid = {
+            let lp = geo_r(1.0).label_position(petal, 6);
+            (wheel_c.0 + lp.x as f32, wheel_c.1 - lp.y as f32)
+        };
+        let start = (x0 + 150.0, y0 + 118.0);
+
+        // The pointer's path and the dragged document.
+        let lerp = |a: (f32, f32), b: (f32, f32), k: f32| (a.0 + (b.0 - a.0) * k, a.1 + (b.1 - a.1) * k);
+        let span = |a: f32, b: f32| ease(((t - a) / (b - a)).clamp(0.0, 1.0));
+        let pointer = if t < 0.7 {
+            lerp(start, doc_mid, span(0.0, 0.7))
+        } else if t < 2.0 {
+            lerp(doc_mid, wheel_c, span(0.85, 2.0))
+        } else if t < 3.6 {
+            lerp(wheel_c, petal_mid, span(2.75, 3.5))
+        } else {
+            lerp(petal_mid, (x0 + w - 40.0, y0 + 112.0), span(4.3, 5.2))
+        };
+        let pressed = (0.75..3.7).contains(&t);
+        let dropped = t >= 3.7;
+
+        // The original stays put; a copy travels with the pointer.
+        draw_document(p, doc_home.0, doc_home.1, doc_size.0, doc_size.1, ink.alpha(if pressed { 0.45 } else { 1.0 }));
+        // After the drop the result appears beside the original.
+        let made = span(4.0, 4.4);
+        if made > 0.0 {
+            let k = spring_pop(made);
+            let (dw, dh) = (doc_size.0 * k, doc_size.1 * k);
+            let (nx, ny) = (doc_home.0 + 44.0 + (doc_size.0 - dw) / 2.0, doc_home.1 + (doc_size.1 - dh) / 2.0);
+            draw_document(p, nx, ny, dw, dh, accent);
+            if k > 0.7 {
+                p.text("PNG", (nx - 6.0, ny + dh + 2.0, dw + 12.0, 14.0), 8.5, Weight::Bold, accent, Align::Center, false);
+            }
+        }
+
+        // The keys: the Convert key goes down once while the click is held.
+        let keys = [self.settings.wheels.conversions.label(), self.settings.wheels.tools.label(), self.settings.wheels.actions.label()];
+        let key_down = (2.15..2.45).contains(&t);
+        let keys_on = span(1.7, 2.0) * (1.0 - span(3.7, 4.0));
+        if keys_on > 0.0 {
+            let mut kx = x0 + 18.0;
+            for (i, k) in keys.iter().enumerate() {
+                let kw = 18.0 + k.len() as f32 * 6.5;
+                let down = i == 0 && key_down;
+                let (ky, a) = (y0 + h - 34.0 + if down { 2.0 } else { 0.0 }, keys_on * fade);
+                if i == 0 && (2.1..2.6).contains(&t) {
+                    p.fill_round_rect(kx, ky, kw, 22.0, 6.0, ACCENT.alpha(0.22 * a));
+                }
+                p.stroke_round_rect(kx, y0 + h - 31.0, kw, 22.0, 6.0, ink.alpha(0.35 * a), 1.0);
+                p.stroke_round_rect(kx, ky, kw, 22.0, 6.0, if i == 0 { ACCENT.alpha(a) } else { ink.alpha(a) }, 1.4);
+                p.text(k, (kx, ky, kw, 22.0), 10.0, Weight::Semibold, if i == 0 { ACCENT.alpha(a) } else { ink.alpha(a) }, Align::Center, false);
+                if i == 0 && (2.05..2.6).contains(&t) {
+                    // Tap marks.
+                    for dx in [-8.0f32, 0.0, 8.0] {
+                        let cx = kx + kw / 2.0 + dx;
+                        p.line(cx + dx * 0.15, ky - 4.0, cx + dx * 0.35, ky - 10.0, ACCENT.alpha(a), 1.5);
+                    }
+                }
+                kx += kw + 8.0;
+            }
+        }
+
+        // The wheel pops open after the tap and closes after the drop.
+        let open = spring_pop(span(2.3, 2.75)) * (1.0 - span(3.9, 4.3));
+        if open > 0.01 {
+            let g = geo_r(open.max(0.05));
+            p.fill_circle(wheel_c.0, wheel_c.1, g.backdrop as f32, ink.alpha(0.08));
+            p.stroke_circle(wheel_c.0, wheel_c.1, g.backdrop as f32, ink, 1.2);
+            let lit = t >= 3.3 && t < 4.3;
+            for i in 0..6 {
+                if let Some(geo) = p.path(&g.petal_path(i, 6), wheel_c.0, wheel_c.1) {
+                    if i == petal && lit {
+                        p.fill_geometry(&geo, accent);
+                    }
+                    p.stroke_geometry(&geo, ink, 1.0);
+                }
+            }
+        }
+
+        // The dragged copy, shrinking into the petal on drop.
+        if pressed || (dropped && t < 4.0) {
+            let k = if dropped { 1.0 - span(3.7, 4.0) } else { 0.85 };
+            if k > 0.02 {
+                let (dw, dh) = (doc_size.0 * k, doc_size.1 * k);
+                let at = if dropped { petal_mid } else { pointer };
+                draw_document(p, at.0 - dw * 0.7, at.1 - dh * 0.75, dw, dh, ink);
+            }
+        }
+        // The pointer, with a ripple while the button is held.
+        if pressed {
+            let r = 6.0 + 3.0 * ((t * 6.0).sin() * 0.5 + 0.5);
+            p.stroke_circle(pointer.0, pointer.1, r, accent.alpha(0.6), 1.2);
+        }
+        if fade > 0.0 {
+            draw_cursor(p, pointer.0, pointer.1, ink, pal);
+        }
+
+        // Step dots and the caption for the current step, cross-fading.
+        let step = if t < 1.95 { 0 } else if t < 3.55 { 1 } else { 2 };
+        let edges = [0.0, 1.95, 3.55, LOOP];
+        let local = ((t - edges[step]) / 0.25).min((edges[step + 1] - t) / 0.25).clamp(0.0, 1.0);
+        let captions = [
+            "Drag a document.".to_string(),
+            format!("Keep holding the click and tap {}, {} or {} once.", keys[0], keys[1], keys[2]),
+            "Drop the file onto a petal.".to_string(),
+        ];
+        let cy = y0 + h + 8.0;
+        for k in 0..3 {
+            let on = k == step;
+            p.fill_circle(x0 + 6.0 + k as f32 * 12.0, cy + 10.0, if on { 4.0 } else { 3.0 }, if on { ACCENT } else { pal.tertiary });
+        }
+        p.text(&captions[step], (x0 + 44.0, cy, w - 44.0, 20.0), 12.0, Weight::Semibold, pal.label.alpha(local), Align::Leading, false);
     }
 
     fn paint_segments(&self, p: &Painter, pal: &Palette, g: Group) {
@@ -513,6 +591,20 @@ impl State {
         }
         false
     }
+}
+
+/// Smooth in and out.
+fn ease(k: f32) -> f32 {
+    k * k * (3.0 - 2.0 * k)
+}
+
+/// 0 → 1 with a little springy overshoot (for pop-ins).
+fn spring_pop(k: f32) -> f32 {
+    if k <= 0.0 {
+        return 0.0;
+    }
+    let k = k.min(1.0);
+    1.0 - (-6.0 * k).exp() * (11.0 * k).cos() * (1.0 - k)
 }
 
 /// A page with a folded corner, outlined.
@@ -747,6 +839,7 @@ pub fn open(settings: &Settings) {
         dragging: false,
         preview,
         scale: 1.0,
+        tutorial: Instant::now(),
     }));
 
     let (cx, cy) = system::cursor_pos();
