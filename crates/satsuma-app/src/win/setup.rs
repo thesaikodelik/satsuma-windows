@@ -399,7 +399,7 @@ impl State {
     }
 
     fn toggle_y(k: usize) -> f32 {
-        204.0 + k as f32 * 40.0
+        170.0 + k as f32 * 40.0
     }
 
     fn buttons(&self) -> (Option<String>, Option<String>) {
@@ -534,13 +534,13 @@ impl State {
             (Page::Welcome, Mode::Install) => {
                 p.text("Satsuma", (RX, 44.0 + dy, RW, 40.0), 30.0, Weight::Bold, label, Align::Leading, false);
                 let sub = match &self.installed {
-                    Some(v) if v != VERSION => format!("Version {VERSION}  ·  you have {v}"),
-                    _ => format!("Version {VERSION} for Windows"),
+                    Some(v) if v != VERSION => format!("Version {VERSION} (you have {v})"),
+                    _ => format!("Version {VERSION}"),
                 };
                 p.text(&sub, (RX, 86.0 + dy, RW, 18.0), 12.0, Weight::Regular, secondary, Align::Leading, false);
                 p.text(
-                    "Drag files, tap Shift, Ctrl or Alt, and drop them on a petal. Everything is converted right on your PC.",
-                    (RX, 118.0 + dy, RW, 60.0),
+                    "Drag files, tap a key, drop on a petal.",
+                    (RX, 118.0 + dy, RW, 40.0),
                     13.0,
                     Weight::Regular,
                     label.alpha(0.9),
@@ -548,11 +548,11 @@ impl State {
                     true,
                 );
                 self.paint_toggles(p, pal, a, dy);
-                p.text("Installs just for you in %LOCALAPPDATA%\\Programs — no administrator needed. It keeps itself up to date.", (RX, 290.0 + dy, RW, 34.0), 10.5, Weight::Regular, tertiary, Align::Leading, true);
+                p.text("No admin rights needed. Updates itself.", (RX, 256.0 + dy, RW, 20.0), 10.5, Weight::Regular, tertiary, Align::Leading, false);
             }
             (Page::Welcome, Mode::Uninstall) => {
                 p.text("Remove Satsuma?", (RX, 60.0 + dy, RW, 40.0), 26.0, Weight::Bold, label, Align::Leading, false);
-                p.text("This removes the app, its shortcuts, its sign-in entry and downloaded updates.", (RX, 112.0 + dy, RW, 60.0), 13.0, Weight::Regular, label.alpha(0.9), Align::Leading, true);
+                p.text("Removes the app and its shortcuts.", (RX, 112.0 + dy, RW, 60.0), 13.0, Weight::Regular, label.alpha(0.9), Align::Leading, true);
                 self.paint_toggles(p, pal, a, dy);
             }
             (Page::Working, mode) => {
@@ -591,7 +591,7 @@ impl State {
                 if mode == Mode::Install {
                     p.text("Satsuma is ready", (RX, 112.0 + dy, RW, 40.0), 26.0, Weight::Bold, label, Align::Leading, false);
                     p.text(
-                        "Its citrus icon lives in the notification area, at the right end of the taskbar. Drag files and tap Shift, Ctrl or Alt to open a wheel.",
+                        "Find its icon at the right end of the taskbar.",
                         (RX, 158.0 + dy, RW, 80.0),
                         13.0,
                         Weight::Regular,
@@ -599,7 +599,6 @@ impl State {
                         Align::Leading,
                         true,
                     );
-                    p.text("Find it later in the Start menu, and in Settings › About.", (RX, 252.0 + dy, RW, 34.0), 11.0, Weight::Regular, tertiary, Align::Leading, true);
                 } else {
                     p.text("Satsuma was removed", (RX, 112.0 + dy, RW, 40.0), 26.0, Weight::Bold, label, Align::Leading, false);
                     p.text("Thanks for trying it.", (RX, 158.0 + dy, RW, 40.0), 13.0, Weight::Regular, label.alpha(0.9), Align::Leading, true);
