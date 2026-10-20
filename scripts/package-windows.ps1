@@ -44,6 +44,12 @@ While dragging files from File Explorer or the desktop, tap
 Drop on a petal, or in the centre to cancel. Keys, theme and transparency are in Settings.
 Without dragging: Convert Files... in Satsuma's menu, then arrow keys and Enter.
 
+Updates
+-------
+Satsuma checks for new versions itself and downloads them in the background. When one
+is ready, the middle of the wheel says "Update ready"; it installs the next time
+Satsuma starts, or right away with "Restart to Update" in its menu.
+
 Command line: satsuma-cli.exe help
 
 Settings: %APPDATA%\Satsuma\settings.json

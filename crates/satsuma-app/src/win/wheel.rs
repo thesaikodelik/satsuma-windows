@@ -36,6 +36,8 @@ pub struct WheelModel {
     pub combos: WheelCombos,
     /// Centre text when nothing is highlighted, e.g. ["1.2 MB"].
     pub hub: Vec<String>,
+    /// A downloaded update waiting for a restart (its version).
+    pub update: Option<String>,
     /// Output size per petal ("1.4 MB", "≈ 12 MB"); `None` when it can't be previewed.
     pub estimates: HashMap<WheelItem, Option<String>>,
     /// Sizes are being worked out, so a petal without one shows bouncing dots.
@@ -58,6 +60,7 @@ impl WheelModel {
             feedback: false,
             combos: WheelCombos::default(),
             hub: Vec::new(),
+            update: None,
             estimates: HashMap::new(),
             estimating: false,
             phase: 0.0,
@@ -263,7 +266,7 @@ pub fn paint(p: &Painter, m: &WheelModel, pal: &Palette, behind: Option<&Behind>
 
     let selected = m.selected.and_then(|i| m.items.get(i));
     let accent = if pal.glass { GLASS_ORANGE_LIGHT } else { ACCENT };
-    if selected.is_some() || !m.hub.is_empty() {
+    if selected.is_some() || !m.hub.is_empty() || m.update.is_some() {
         let r = (g.inner - 6.0) as f32;
         if pal.glass {
             p.fill_circle(c, c, r, white(0.04));
@@ -296,12 +299,20 @@ pub fn paint(p: &Painter, m: &WheelModel, pal: &Palette, behind: Option<&Behind>
             }
             None => p.text_centered(&item.title(), c, c, 9.5, Weight::Bold, accent),
         }
-    } else if !m.hub.is_empty() {
-        let n = m.hub.len() as f32;
+    } else if !m.hub.is_empty() || m.update.is_some() {
+        // The hub (drop here to cancel) also tells when an update is waiting.
+        let lines = m.hub.len() + usize::from(m.update.is_some());
+        let n = lines as f32;
         for (k, line) in m.hub.iter().enumerate() {
             let (size, color) = if k == 0 { (10.5, pal.label) } else { (9.0, pal.secondary) };
             let y = c - (n - 1.0) * 6.5 + k as f32 * 13.0;
             p.text_centered(line, c, y, size, Weight::Semibold, color);
+        }
+        if m.update.is_some() {
+            let y = c - (n - 1.0) * 6.5 + (lines - 1) as f32 * 13.0 + if m.hub.is_empty() { 0.0 } else { 2.0 };
+            let w = 54.0;
+            p.fill_round_rect(c - w / 2.0, y - 7.0, w, 14.0, 7.0, accent.alpha(0.18));
+            p.text_centered("Update ready", c, y, 7.5, Weight::Bold, accent);
         }
     }
 }

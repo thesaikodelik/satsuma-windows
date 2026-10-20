@@ -42,6 +42,7 @@ mod system;
 mod selftest;
 mod settings_window;
 mod theme;
+mod update;
 mod wheel;
 mod window;
 

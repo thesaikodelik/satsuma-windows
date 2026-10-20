@@ -36,6 +36,7 @@ const CMD_CONVERT: u32 = 1;
 const CMD_HELP: u32 = 2;
 const CMD_QUIT: u32 = 3;
 const CMD_SETTINGS: u32 = 6;
+const CMD_UPDATE: u32 = 7;
 
 const WM_TRAY: u32 = WM_APP + 1;
 const TIMER_TICK: usize = 1;
@@ -171,6 +172,8 @@ struct Controller {
     exit_when_idle: bool,
     /// The tick's current period: fast while something can happen, slow when idle.
     tick_ms: u32,
+    /// A downloaded update waiting for a restart (its version).
+    update_ready: Option<String>,
 }
 
 thread_local! {
@@ -250,6 +253,7 @@ impl Controller {
             feedback: self.settings.feedback,
             combos: self.settings.wheels,
             hub: satsuma_core::wheel::hub_caption(files.len(), bytes),
+            update: self.update_ready.clone(),
             estimates: Default::default(),
             estimating: false,
             phase: 0.0,
@@ -285,6 +289,13 @@ impl Controller {
     // ------------------------------------------------------------ the 60 Hz tick
 
     fn tick(&mut self) {
+        let ready = super::update::ready();
+        if ready != self.update_ready {
+            debug!("update ready: {ready:?}");
+            self.update_ready = ready;
+            let tip = self.tip();
+            self.tray.update(&tip);
+        }
         self.sample_drag();
         for event in events::drain() {
             self.handle(event);
@@ -638,7 +649,11 @@ impl Controller {
 
     fn tip(&self) -> String {
         let w = &self.settings.wheels;
-        format!("Satsuma — drag files and tap {}, {} or {}", w.conversions.label(), w.tools.label(), w.actions.label())
+        let tip = format!("Satsuma — drag files and tap {}, {} or {}", w.conversions.label(), w.tools.label(), w.actions.label());
+        match &self.update_ready {
+            Some(v) => format!("{tip}\nVersion {v} is ready; it installs when Satsuma restarts."),
+            None => tip,
+        }
     }
 
     // ------------------------------------------------------------ menu
@@ -663,6 +678,21 @@ impl Controller {
             CMD_HELP => self.deferred.push(Deferred::Welcome),
             CMD_QUIT => unsafe { PostQuitMessage(0) },
             CMD_SETTINGS => super::settings_window::open(&self.settings),
+            CMD_UPDATE => {
+                if self.job.is_some() {
+                    self.deferred.push(Deferred::Alert("Satsuma is working".into(), "Restart to update once the current files are done.".into()));
+                    return;
+                }
+                match super::update::install() {
+                    Ok(version) => {
+                        debug!("installed {version}; restarting");
+                        if super::update::relaunch() {
+                            unsafe { PostQuitMessage(0) };
+                        }
+                    }
+                    Err(e) => self.deferred.push(Deferred::Alert("Couldn't update Satsuma".into(), e)),
+                }
+            }
             _ => {}
         }
     }
@@ -720,9 +750,12 @@ impl Menu {
 
 }
 
-fn build_menu(working: bool) -> Menu {
+fn build_menu(working: bool, update: Option<&str>) -> Menu {
     let menu = Menu::new();
     menu.item(0, if working { "Satsuma is working…" } else { "Satsuma is ready" }, false, false);
+    if let Some(v) = update {
+        menu.item(CMD_UPDATE, &format!("Restart to Update ({v})"), false, true);
+    }
     menu.separator();
     menu.item(CMD_CONVERT, "Convert Files…", false, true);
     menu.item(CMD_SETTINGS, "Settings…", false, true);
@@ -734,8 +767,8 @@ fn build_menu(working: bool) -> Menu {
 
 /// Shows the tray menu and runs the chosen command (outside the controller borrow while open).
 fn show_menu(hwnd: HWND) {
-    let Some(working) = with_controller(|c| c.job.is_some()) else { return };
-    let menu = build_menu(working);
+    let Some((working, update)) = with_controller(|c| (c.job.is_some(), c.update_ready.clone())) else { return };
+    let menu = build_menu(working, update.as_deref());
     let mut pt = POINT::default();
     let cmd = unsafe {
         let _ = GetCursorPos(&mut pt);
@@ -829,10 +862,23 @@ fn already_running() -> bool {
     use windows::Win32::Foundation::{GetLastError, ERROR_ALREADY_EXISTS};
     use windows::Win32::System::Threading::CreateMutexW;
     unsafe {
-        let _mutex = CreateMutexW(None, true, &HSTRING::from("Local\\Satsuma.SingleInstance"));
-        let exists = GetLastError() == ERROR_ALREADY_EXISTS;
-        std::mem::forget(_mutex);
-        exists
+        // Just after an update the old instance is still quitting: wait for it.
+        let tries = if super::update::after_update() { 50 } else { 1 };
+        for k in 0..tries {
+            let mutex = CreateMutexW(None, true, &HSTRING::from("Local\\Satsuma.SingleInstance"));
+            let exists = GetLastError() == ERROR_ALREADY_EXISTS;
+            if !exists {
+                std::mem::forget(mutex);
+                return false;
+            }
+            if let Ok(h) = mutex {
+                let _ = windows::Win32::Foundation::CloseHandle(h);
+            }
+            if k + 1 < tries {
+                std::thread::sleep(Duration::from_millis(200));
+            }
+        }
+        true
     }
 }
 
@@ -841,7 +887,21 @@ pub fn run() {
         let _ = SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
         let _ = OleInitialize(None);
     }
-    if already_running() && std::env::var_os("SATSUMA_SELFTEST_DROP").is_none() {
+    let selftest = std::env::var_os("SATSUMA_SELFTEST_DROP").is_some();
+    super::update::clean_up();
+    if !selftest && !super::update::after_update() {
+        // An update downloaded last time goes in before anything starts.
+        match super::update::install() {
+            Ok(version) => {
+                debug!("installed {version} at start");
+                if super::update::relaunch() {
+                    return;
+                }
+            }
+            Err(e) => debug!("no update installed: {e}"),
+        }
+    }
+    if already_running() && !selftest {
         system::alert("Satsuma", "Satsuma is already running. Its icon is in the notification area, at the right end of the taskbar.");
         return;
     }
@@ -879,14 +939,22 @@ pub fn run() {
         deferred: Vec::new(),
         exit_when_idle: false,
         tick_ms: FAST_TICK_MS,
+        update_ready: None,
     };
     #[cfg(debug_assertions)]
     if let Some(event) = selftest_drop() {
         controller.exit_when_idle = true;
         events::post(event);
     }
+    controller.update_ready = super::update::ready();
     let tip = controller.tip();
     controller.tray.add(&tip);
+    super::update::start();
+    if super::update::after_update() {
+        let at = system::cursor_pos();
+        controller.flash(at, "Satsuma updated", &format!("Now on version {}", super::update::CURRENT));
+        controller.hud_hide_at = Some(Instant::now() + Duration::from_secs(4));
+    }
     #[cfg(debug_assertions)]
     if std::env::var_os("SATSUMA_OPEN_SETTINGS").is_some() {
         super::settings_window::open(&controller.settings);
