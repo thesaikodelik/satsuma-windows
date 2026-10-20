@@ -37,8 +37,10 @@ pub struct WheelModel {
     pub hub: Vec<String>,
     /// Output size per petal ("1.4 MB", "≈ 12 MB"); `None` when it can't be previewed.
     pub estimates: HashMap<WheelItem, Option<String>>,
-    /// Sizes are being worked out, so a petal without one shows "…".
+    /// Sizes are being worked out, so a petal without one shows bouncing dots.
     pub estimating: bool,
+    /// Seconds into the dots' animation.
+    pub phase: f32,
 }
 
 impl WheelModel {
@@ -53,6 +55,7 @@ impl WheelModel {
             hub: Vec::new(),
             estimates: HashMap::new(),
             estimating: false,
+            phase: 0.0,
         }
     }
 }
@@ -68,6 +71,7 @@ struct State {
     /// Files of the drag currently over the wheel.
     files: Vec<PathBuf>,
     palette: Palette,
+    started: std::time::Instant,
 }
 
 pub struct WheelWindow {
@@ -123,9 +127,18 @@ pub fn paint(p: &Painter, m: &WheelModel, pal: &Palette) {
         // The result's size, with the petal's name under it.
         let size = match m.estimates.get(item) {
             Some(Some(text)) => Some(text.as_str()),
-            None if m.estimating => Some("…"),
             _ => None,
         };
+        if size.is_none() && m.estimating && !m.estimates.contains_key(item) {
+            // Working it out: three dots hop one after another.
+            for k in 0..3 {
+                let t = (m.phase * 2.4 - k as f32 * 0.18).rem_euclid(1.0);
+                let hop = if t < 0.5 { (t * 2.0 * std::f32::consts::PI).sin().max(0.0) } else { 0.0 };
+                p.fill_circle(c - 8.0 + k as f32 * 8.0, c - 4.0 - hop * 4.5, 2.4, ACCENT.alpha(0.55 + 0.45 * hop));
+            }
+            p.text_centered(&item.title(), c, c + 10.0, 7.5, Weight::Semibold, pal.secondary);
+            return;
+        }
         match size {
             Some(text) => {
                 p.text_centered(text, c, c - 5.0, if text.chars().count() > 8 { 10.0 } else { 11.5 }, Weight::Bold, ACCENT);
@@ -342,6 +355,7 @@ impl WheelWindow {
             probing: false,
             files: Vec::new(),
             palette: Palette::current(),
+            started: std::time::Instant::now(),
         }));
         let hwnd = window::create(
             WS_EX_LAYERED | WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE,
@@ -473,6 +487,19 @@ impl WheelWindow {
         let mut s = self.state.borrow_mut();
         s.model.estimating = on;
         s.model.estimates.clear();
+    }
+
+    /// Advances the waiting dots while the hovered petal's size is being worked out.
+    pub fn animate(&self) {
+        let Ok(mut s) = self.state.try_borrow_mut() else { return };
+        let waiting = s.visible
+            && !s.probing
+            && s.model.estimating
+            && s.model.selected.and_then(|i| s.model.items.get(i)).is_some_and(|item| !s.model.estimates.contains_key(item));
+        if waiting {
+            s.model.phase = s.started.elapsed().as_secs_f32();
+            render(self.hwnd, &s);
+        }
     }
 
     pub fn selected_item(&self) -> Option<WheelItem> {

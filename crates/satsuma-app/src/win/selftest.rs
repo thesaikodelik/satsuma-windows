@@ -109,6 +109,8 @@ pub fn selftest_drag(args: &[String]) -> i32 {
     let mut shot: Option<PathBuf> = None;
     let mut from: Option<(i32, i32)> = None;
     let mut hold = false;
+    let mut no_drop = false;
+    let mut shot_after = 2500u64;
     let mut also: Option<VIRTUAL_KEY> = None;
     let mut files = Vec::new();
     let mut it = args.iter();
@@ -126,6 +128,9 @@ pub fn selftest_drag(args: &[String]) -> i32 {
             "--from" => from = it.next().and_then(|v| v.split_once(',')).and_then(|(x, y)| Some((x.trim().parse().ok()?, y.trim().parse().ok()?))),
             // Keep the key held until the drop instead of tapping it.
             "--hold" => hold = true,
+            // Hover the petal, then cancel with Escape instead of dropping.
+            "--no-drop" => no_drop = true,
+            "--shot-after" => shot_after = it.next().and_then(|n| n.parse().ok()).unwrap_or(2500),
             // Hold another key during the drag first (Shift to move, Ctrl to copy …).
             "--also" => {
                 also = match it.next().map(String::as_str) {
@@ -205,7 +210,7 @@ pub fn selftest_drag(args: &[String]) -> i32 {
         std::thread::sleep(Duration::from_millis(500));
         glide(anchor, target, 10);
         // With a screenshot, hover long enough for the size preview.
-        std::thread::sleep(Duration::from_millis(if shot.is_some() { 2500 } else { 450 }));
+        std::thread::sleep(Duration::from_millis(if shot.is_some() { shot_after } else { 450 }));
         if let Some(path) = &shot {
             let half = (150.0 * scale) as i32;
             if let Err(e) = screenshot(anchor.0 - half, anchor.1 - half, half * 2, half * 2, path) {
@@ -216,7 +221,7 @@ pub fn selftest_drag(args: &[String]) -> i32 {
         let under = unsafe { WindowFromPoint(windows::Win32::Foundation::POINT { x: target.0, y: target.1 }) };
         let mut title = [0u16; 64];
         let n = unsafe { GetWindowTextW(under, &mut title) } as usize;
-        if String::from_utf16_lossy(&title[..n]) != "Satsuma Wheel" {
+        if no_drop || String::from_utf16_lossy(&title[..n]) != "Satsuma Wheel" {
             println!("the wheel is not under the pointer; cancelling the drag");
             // Release modifiers first: Ctrl+Esc would open Start.
             if let Some(k) = also {

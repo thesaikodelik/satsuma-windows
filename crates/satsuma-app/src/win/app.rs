@@ -266,6 +266,7 @@ impl Controller {
             hub: satsuma_core::wheel::hub_caption(files.len(), bytes),
             estimates: Default::default(),
             estimating: false,
+            phase: 0.0,
         }
     }
 
@@ -302,6 +303,7 @@ impl Controller {
         }
         self.poll_job();
         self.poll_estimates();
+        self.wheel.animate();
         if self.wheel_hide_at.is_some_and(|t| Instant::now() >= t) {
             self.wheel_hide_at = None;
             self.wheel.hide();
