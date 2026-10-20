@@ -108,7 +108,8 @@ fn check() -> Result<(), String> {
     let json: serde_json::Value = serde_json::from_slice(&std::fs::read(&json_path).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
     let _ = std::fs::remove_file(&json_path);
     let tag = json["tag_name"].as_str().ok_or("no tag_name")?;
-    let version = tag.trim_start_matches(['v', 'V']).to_string();
+    // Tags look like `v0.1.2-windows`; the version is the numbers.
+    let version = tag.trim_start_matches(['v', 'V']).split(['-', '+']).next().unwrap_or("").to_string();
     if !is_newer(&version, CURRENT) || ready().as_deref() == Some(version.as_str()) {
         return Ok(());
     }

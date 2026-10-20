@@ -905,6 +905,8 @@ pub fn run() {
         system::alert("Satsuma", "Satsuma is already running. Its icon is in the notification area, at the right end of the taskbar.");
         return;
     }
+    // After an update the old instance has quit by now, so its executables can go.
+    super::update::clean_up();
     let taskbar_created = unsafe { RegisterWindowMessageW(&HSTRING::from("TaskbarCreated")) };
     let main = window::create(WS_EX_TOOLWINDOW, WS_OVERLAPPED, "Satsuma", 0, 0, 0, 0, None, Rc::new(Main { taskbar_created }));
 

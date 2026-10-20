@@ -36,7 +36,8 @@ use win as platform;
 /// Starts the app, or runs a command when there are arguments.
 pub fn main_entry() -> i32 {
     // Finder may pass a process serial number argument on older systems.
-    let args: Vec<String> = std::env::args().skip(1).filter(|a| !a.starts_with("-psn_")).collect();
+    // `--updated` (Windows: relaunched after installing an update) still starts the app.
+    let args: Vec<String> = std::env::args().skip(1).filter(|a| !a.starts_with("-psn_") && a != "--updated").collect();
     if args.is_empty() {
         platform::run();
         0
