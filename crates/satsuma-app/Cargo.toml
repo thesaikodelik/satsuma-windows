@@ -9,6 +9,10 @@ description = "Satsuma menu-bar app and command-line interface."
 name = "satsuma"
 path = "src/main.rs"
 
+[[bin]]
+name = "satsuma-cli"
+path = "src/bin/satsuma-cli.rs"
+
 [features]
 # Hidden `render-demo` command that renders the README video and screenshots.
 demo = []
@@ -28,6 +32,11 @@ objc2-service-management.workspace = true
 [target.'cfg(windows)'.dependencies]
 windows.workspace = true
 dunce = "1"
+windows-core = "0.62"
+windows-numerics = "0.3"
+windows-collections = "0.3"
+image = { version = "0.25", default-features = false, features = ["png"] }
+tiny-skia = "0.12"
 
 [target.'cfg(windows)'.build-dependencies]
 winres = "0.1"

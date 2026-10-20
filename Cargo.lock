@@ -1635,6 +1635,7 @@ name = "satsuma-app"
 version = "0.1.0"
 dependencies = [
  "dunce",
+ "image",
  "objc2",
  "objc2-app-kit",
  "objc2-core-foundation",
@@ -1643,7 +1644,11 @@ dependencies = [
  "satsuma-core",
  "satsuma-engine",
  "serde_json",
+ "tiny-skia",
  "windows",
+ "windows-collections",
+ "windows-core",
+ "windows-numerics",
  "winres",
 ]
 

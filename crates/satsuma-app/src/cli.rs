@@ -8,10 +8,10 @@ use satsuma_engine::{capability, detect_format, plan, run_plan, Cancel, Context,
 use std::io::Write;
 use std::path::PathBuf;
 
-const USAGE: &str = "Satsuma — drag-gesture file converter for macOS
+const USAGE: &str = "Satsuma — drag-gesture file converter
 
 USAGE:
-  satsuma                                   Start the menu-bar app
+  satsuma                                   Start the app (menu bar on macOS, notification area on Windows)
   satsuma formats                           List every conversion path and whether it works here
   satsuma targets <files…>                  Show the Convert, Tools and Actions wheels for files
   satsuma convert --to <format> <files…>    Convert files (results go next to the originals)
@@ -65,7 +65,10 @@ pub fn run(args: &[String]) -> i32 {
         "render-icon" => render_icon(rest),
         "render-editor" => render_editor(rest),
         #[cfg(feature = "demo")]
+        #[cfg(target_os = "macos")]
         "render-demo" => crate::demo::run(rest),
+        #[cfg(all(windows, debug_assertions))]
+        "selftest-drag" => crate::platform::selftest_drag(rest),
         other => {
             eprintln!("Unknown command `{other}`.\n\n{USAGE}");
             2
@@ -98,13 +101,24 @@ fn formats() -> i32 {
         capability::available_paths(&env)
     );
     if !env.has_ffmpeg() {
-        println!("Install ffmpeg (`brew install ffmpeg`) for audio and video.");
+        println!("{}", crate::platform::ffmpeg_hint());
     }
     0
 }
 
 fn paths(args: &[String]) -> Vec<PathBuf> {
-    args.iter().map(|a| std::fs::canonicalize(a).unwrap_or_else(|_| PathBuf::from(a))).collect()
+    args.iter().map(|a| canonical(a)).collect()
+}
+
+/// An absolute path without Windows' `\?\` verbatim prefix.
+fn canonical(a: &str) -> PathBuf {
+    match std::fs::canonicalize(a) {
+        #[cfg(windows)]
+        Ok(p) => dunce::simplified(&p).to_path_buf(),
+        #[cfg(not(windows))]
+        Ok(p) => p,
+        Err(_) => PathBuf::from(a),
+    }
 }
 
 fn targets(args: &[String]) -> i32 {
@@ -328,12 +342,7 @@ fn render_wheel(args: &[String]) -> i32 {
     let env = Env::discover();
     let formats = vec![Some(format); count.max(1)];
     let items = wheel_items(mode, &formats, &|i| capability::item_available(&env, i, &formats));
-    let mut model = crate::wheel::WheelModel::new(mode, items);
-    model.selected = selected;
-    let mtm = crate::system::main_thread();
-    // AppKit drawing needs the shared application.
-    let _app = objc2_app_kit::NSApplication::sharedApplication(mtm);
-    match crate::wheel::render_png(mtm, model, dark, std::path::Path::new(&out)) {
+    match crate::platform::render_wheel(mode, items, selected, dark, std::path::Path::new(&out)) {
         Ok(()) => {
             println!("{out}");
             0
@@ -363,9 +372,7 @@ fn render_icon(args: &[String]) -> i32 {
         eprintln!("Usage: satsuma render-icon --size 1024 --out icon.png");
         return 2;
     };
-    let mtm = crate::system::main_thread();
-    let _app = objc2_app_kit::NSApplication::sharedApplication(mtm);
-    match crate::icon::render_icon(size, std::path::Path::new(&out)) {
+    match crate::platform::render_icon(size, std::path::Path::new(&out)) {
         Ok(()) => 0,
         Err(e) => {
             eprintln!("{e}");
@@ -403,22 +410,8 @@ fn render_editor(args: &[String]) -> i32 {
         eprintln!("--out is required");
         return 2;
     };
-    let mtm = crate::system::main_thread();
-    let _app = objc2_app_kit::NSApplication::sharedApplication(mtm);
-    let delegate = crate::app::AppDelegate::new(mtm);
-    let d = objc2::runtime::ProtocolObject::from_ref(&*delegate);
     let files = paths(&[image.clone()]);
-    let editor = match kind.as_str() {
-        "crop" => crate::editor::EditorWindow::crop(mtm, files, d, false),
-        "edit" => crate::editor::EditorWindow::adjust(mtm, files, d, false),
-        _ => crate::editor::EditorWindow::frame(mtm, files, d, false),
-    };
-    let editor = editor.inspect(|e| {
-        for (k, v) in &sets {
-            e.set_adjustment(k, *v);
-        }
-    });
-    match editor.and_then(|e| e.render_png(segment, std::path::Path::new(&out))) {
+    match crate::platform::render_editor(kind, files, &sets, segment, std::path::Path::new(&out)) {
         Ok(()) => 0,
         Err(e) => {
             eprintln!("{e}");
