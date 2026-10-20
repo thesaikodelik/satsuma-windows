@@ -129,33 +129,6 @@ impl Tray {
         }
     }
 
-    /// A Windows notification from the tray icon; clicking it comes back as
-    /// `NIN_BALLOONUSERCLICK`.
-    fn notify(&self, title: &str, text: &str) {
-        let mut nid = self.data();
-        nid.uFlags = NIF_INFO;
-        for (d, s) in nid.szInfoTitle.iter_mut().zip(title.encode_utf16().chain(std::iter::once(0)).take(63)) {
-            *d = s;
-        }
-        for (d, s) in nid.szInfo.iter_mut().zip(text.encode_utf16().chain(std::iter::once(0)).take(255)) {
-            *d = s;
-        }
-        // The app's own icon, large, instead of the generic "i".
-        let icon = super::icon::hicon(&super::icon::app_icon(64), 64);
-        match icon {
-            Some(h) => {
-                nid.hBalloonIcon = h;
-                nid.dwInfoFlags = NIIF_USER | NIIF_LARGE_ICON;
-            }
-            None => nid.dwInfoFlags = NIIF_INFO,
-        }
-        unsafe {
-            // The icon stays alive: the shell may draw the notification after this returns
-            // (one small icon per downloaded update).
-            let _ = Shell_NotifyIconW(NIM_MODIFY, &nid);
-        }
-    }
-
     fn remove(&self) {
         let nid = self.data();
         unsafe {
@@ -320,14 +293,9 @@ impl Controller {
         let ready = super::update::ready();
         if ready != self.update_ready {
             debug!("update ready: {ready:?}");
-            let fresh = self.update_ready.is_none();
             self.update_ready = ready;
             let tip = self.tip();
             self.tray.update(&tip);
-            if let (true, Some(v)) = (fresh, &self.update_ready) {
-                // Downloaded just now: say so once.
-                self.tray.notify(&format!("Satsuma {v} is ready"), "It installs the next time Satsuma starts. Click here to install it now.");
-            }
         }
         self.sample_drag();
         for event in events::drain() {
@@ -839,14 +807,6 @@ impl Handler for Main {
                 let event = window::loword(lparam.0) as u32;
                 if event == WM_CONTEXTMENU || event == NIN_SELECT {
                     show_menu(hwnd);
-                } else if event == NIN_BALLOONUSERCLICK {
-                    // The "update is ready" notification: install now.
-                    with_controller(|c| {
-                        if c.update_ready.is_some() {
-                            c.command(CMD_UPDATE);
-                        }
-                    });
-                    run_deferred();
                 }
                 Some(LRESULT(0))
             }
