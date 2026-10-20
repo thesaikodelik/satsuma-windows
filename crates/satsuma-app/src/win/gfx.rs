@@ -299,6 +299,72 @@ impl Painter {
         self.text_in_family("Segoe UI", s, rect, size, weight, c, align, wrap);
     }
 
+    /// Capsules melted together like liquid (30nama's pill): each piece is a capsule, and
+    /// pieces closer than `reach` merge with a smooth union. Drawn into `area` with a fill
+    /// and a 1 px rim, at `scale` pixels per DIP. Pieces are in DIPs.
+    pub fn liquid(&self, area: (f32, f32, f32, f32), pieces: &[(f32, f32, f32, f32)], fill: Rgba, rim: Rgba, scale: f32) {
+        const REACH: f32 = 11.0;
+        const RIM: f32 = 1.2;
+        let (w, h) = ((area.2 * scale).ceil().max(1.0) as u32, (area.3 * scale).ceil().max(1.0) as u32);
+        // Signed distance to a capsule (a rounded box with fully round ends).
+        let capsule = |x: f32, y: f32, r: (f32, f32, f32, f32)| {
+            let rad = r.2.min(r.3) / 2.0;
+            let (cx, cy) = (r.0 + r.2 / 2.0, r.1 + r.3 / 2.0);
+            let qx = (x - cx).abs() - (r.2 / 2.0 - rad);
+            let qy = (y - cy).abs() - (r.3 / 2.0 - rad);
+            let outside = (qx.max(0.0).powi(2) + qy.max(0.0).powi(2)).sqrt();
+            outside + qx.max(qy).min(0.0) - rad
+        };
+        let join = |a: f32, b: f32| {
+            let k = ((REACH - (a - b).abs()).max(0.0)) / REACH;
+            a.min(b) - k * k * REACH / 4.0
+        };
+        let mut rgba = vec![0u8; (w * h * 4) as usize];
+        for py in 0..h {
+            for px in 0..w {
+                let (x, y) = (area.0 + (px as f32 + 0.5) / scale, area.1 + (py as f32 + 0.5) / scale);
+                let mut d = f32::MAX;
+                for p in pieces.iter().filter(|p| p.2 > 0.5 && p.3 > 0.5) {
+                    let pd = capsule(x, y, *p);
+                    d = if d == f32::MAX { pd } else { join(d, pd) };
+                }
+                if d == f32::MAX {
+                    continue;
+                }
+                let cover = (0.5 - d * scale).clamp(0.0, 1.0);
+                if cover <= 0.0 {
+                    continue;
+                }
+                let inner = (0.5 - (d + RIM) * scale).clamp(0.0, 1.0);
+                let band = (cover - inner).max(0.0);
+                let (fa, ra) = (fill.3 * inner, rim.3 * band);
+                let a = fa + ra * (1.0 - fa);
+                if a <= 0.0 {
+                    continue;
+                }
+                let mix = |f: f32, r: f32| ((f * fa + r * ra * (1.0 - fa)) / a * 255.0).round().clamp(0.0, 255.0) as u8;
+                let i = ((py * w + px) * 4) as usize;
+                rgba[i..i + 4].copy_from_slice(&[mix(fill.0, rim.0), mix(fill.1, rim.1), mix(fill.2, rim.2), (a * 255.0).round() as u8]);
+            }
+        }
+        self.image(&rgba, w, h, area);
+    }
+
+    /// Width of one line of text in DIPs.
+    pub fn text_width(&self, s: &str, size: f32, weight: Weight) -> f32 {
+        let Some(format) = text_format("Segoe UI", size, weight, false) else { return 0.0 };
+        let text: Vec<u16> = s.encode_utf16().collect();
+        FACTORIES.with(|f| unsafe {
+            f.dwrite
+                .CreateTextLayout(&text, &format, 10_000.0, 100.0)
+                .and_then(|layout| {
+                    let mut m = DWRITE_TEXT_METRICS::default();
+                    layout.GetMetrics(&mut m).map(|_| m.widthIncludingTrailingWhitespace)
+                })
+                .unwrap_or(0.0)
+        })
+    }
+
     /// One line centred on `(x, y)`.
     pub fn text_centered(&self, s: &str, x: f32, y: f32, size: f32, weight: Weight, c: Rgba) {
         self.text(s, (x - 120.0, y - size, 240.0, size * 2.0), size, weight, c, Align::Center, false);

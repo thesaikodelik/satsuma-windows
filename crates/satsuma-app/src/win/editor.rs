@@ -1,7 +1,7 @@
 //! The editor windows: Crop Image, Add Background and Edit Photo, with live previews.
 //! Same layout, presets and behaviour as the macOS editors (`editor.rs`); the controls are
-//! drawn with Direct2D so they follow the light or dark theme, and the exact-size fields are
-//! native edit controls.
+//! drawn with Direct2D (including the exact-size fields) so they follow the theme and work
+//! on Liquid Glass.
 
 use super::events::{self, UiEvent};
 use super::gfx::{Align, Painter, Rgba, Surface, Weight};
@@ -18,8 +18,7 @@ use satsuma_engine::{photo, Operation};
 use std::cell::RefCell;
 use std::path::PathBuf;
 use std::rc::Rc;
-use windows::core::HSTRING;
-use windows::Win32::Foundation::{COLORREF, HWND, LPARAM, LRESULT, RECT, WPARAM};
+use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, RECT, WPARAM};
 use windows::Win32::Graphics::Dwm::{DwmSetWindowAttribute, DWMWA_USE_IMMERSIVE_DARK_MODE};
 use windows::Win32::Graphics::Gdi::*;
 use windows::Win32::UI::HiDpi::{AdjustWindowRectExForDpi, GetDpiForWindow};
@@ -68,6 +67,8 @@ enum Id {
     Gradient(usize),
     Solid(usize),
     ImageButton,
+    /// Crop width (0) or height (1) field.
+    Field(usize),
     ColorButton,
     CropArea,
 }
@@ -78,7 +79,10 @@ struct CropState {
     rect: Rect,
     aspect_index: usize,
     drag: Option<(Handle, Rect, (f32, f32))>,
-    fields: Option<(HWND, HWND)>,
+    /// Typed width and height, the focused field, and whether typing replaces it.
+    text: [String; 2],
+    focus: Option<usize>,
+    fresh: bool,
 }
 
 struct FrameState {
@@ -113,6 +117,73 @@ struct Editor {
     height: f32,
     pressed: Option<Id>,
     slider_drag: Option<usize>,
+    caret_on: bool,
+    /// Pixels per DIP while painting (for bitmaps drawn at full resolution).
+    scale: f32,
+    /// The segmented control's pill flowing from one segment to another.
+    pill: Option<PillMotion>,
+}
+
+/// 30nama's liquid pill: where it came from and when it set off.
+#[derive(Clone, Copy)]
+struct PillMotion {
+    from: usize,
+    started: std::time::Instant,
+    /// Offscreen renders show one moment of the flow.
+    frozen: Option<f32>,
+}
+
+impl PillMotion {
+    fn elapsed(&self) -> f32 {
+        self.frozen.unwrap_or_else(|| self.started.elapsed().as_secs_f32())
+    }
+}
+
+/// How long a pill motion runs before it is considered settled.
+const PILL_SECONDS: f32 = 1.3;
+
+/// Windows "Animation effects" is off: use a short ease-out instead of the spring.
+fn calm() -> bool {
+    let mut on = windows::core::BOOL(1);
+    unsafe {
+        let _ = SystemParametersInfoW(SPI_GETCLIENTAREAANIMATION, 0, Some(&mut on as *mut _ as *mut _), SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS(0));
+    }
+    !on.as_bool()
+}
+
+/// Progress 0 → 1 (overshooting a little) of an underdamped spring with SwiftUI's
+/// response 0.55 s and damping 0.78, the values 30nama uses.
+fn spring(t: f32) -> f32 {
+    if calm() {
+        let x = (t / 0.18).min(1.0);
+        return 1.0 - (1.0 - x).powi(3);
+    }
+    let (response, damping) = (0.55f32, 0.78f32);
+    let w = 2.0 * std::f32::consts::PI / response;
+    let wd = w * (1.0 - damping * damping).sqrt();
+    1.0 - (-damping * w * t).exp() * ((wd * t).cos() + damping * w / wd * (wd * t).sin())
+}
+
+/// The liquid pill's pieces mid-flow (30nama's `Goo`): the leading edge runs ahead
+/// (ease-out cubic), the trailing edge follows (ease-in quad), the body thins in the
+/// middle of the run, and a drop shrinks away at the old place.
+fn goo(from: R, to: R, progress: f32) -> Vec<R> {
+    let p = progress.max(0.0);
+    let settled = p.min(1.0);
+    let lead = 1.0 - (1.0 - settled).powi(3) + (p - settled);
+    let trail = settled * settled;
+    let right = to.0 + to.2 / 2.0 > from.0 + from.2 / 2.0;
+    let min_x = from.0 + (to.0 - from.0) * if right { trail } else { lead };
+    let max_x = (from.0 + from.2) + ((to.0 + to.2) - (from.0 + from.2)) * if right { lead } else { trail };
+    let height = to.3 * (1.0 - 0.32 * (std::f32::consts::PI * settled).sin());
+    let body = (min_x, to.1 + to.3 / 2.0 - height / 2.0, (max_x - min_x).max(height), height);
+    let left = (1.0 - settled).powf(1.6);
+    let mut pieces = vec![body];
+    if left > 0.02 {
+        let (cx, cy) = (from.0 + from.2 / 2.0, from.1 + from.3 / 2.0);
+        pieces.push((cx - from.2 * left / 2.0, cy - from.3 * left / 2.0, from.2 * left, from.3 * left));
+    }
+    pieces
 }
 
 /// macOS rect (y up, in a window `h` tall including the title area) → client DIPs, y down.
@@ -146,6 +217,8 @@ impl Editor {
                 for i in 0..n {
                     v.push((Id::Segment(i), (seg.0 + seg.2 * i as f32 / n as f32, seg.1, seg.2 / n as f32, seg.3)));
                 }
+                v.push((Id::Field(0), mac(h, 36.0, 60.0, 80.0, 24.0)));
+                v.push((Id::Field(1), mac(h, 140.0, 60.0, 80.0, 24.0)));
                 v.push((Id::CropArea, mac(h, 12.0, 130.0, W - 24.0, h - 162.0)));
             }
             Kind::Frame(_) => {
@@ -240,9 +313,8 @@ impl Editor {
     fn set_crop(&mut self, r: Rect) {
         if let Kind::Crop(c) = &mut self.kind {
             c.rect = r;
-            if let Some((wf, hf)) = c.fields {
-                set_text(wf, &format!("{}", r.w.round() as i64));
-                set_text(hf, &format!("{}", r.h.round() as i64));
+            if c.focus.is_none() {
+                c.text = [format!("{}", r.w.round() as i64), format!("{}", r.h.round() as i64)];
             }
         }
     }
@@ -258,9 +330,13 @@ impl Editor {
 
     fn crop_size_edited(&mut self) {
         let Kind::Crop(c) = &mut self.kind else { return };
-        let Some((wf, hf)) = c.fields else { return };
-        let (w, h) = (get_number(wf), get_number(hf));
-        let (Some(w), Some(h)) = (w, h) else { return };
+        c.focus = None;
+        let (w, h) = (c.text[0].trim().parse::<i64>().ok(), c.text[1].trim().parse::<i64>().ok());
+        let (Some(w), Some(h)) = (w, h) else {
+            let r = c.rect;
+            self.set_crop(r);
+            return;
+        };
         // Typed sizes override the aspect preset.
         c.aspect_index = 0;
         let r = set_size(c.rect, w.max(1) as f64, h.max(1) as f64, c.size);
@@ -317,7 +393,24 @@ impl Editor {
         }
     }
 
+    fn current_segment(&self) -> usize {
+        match &self.kind {
+            Kind::Crop(c) => c.aspect_index,
+            Kind::Frame(f) => f.ratio_index,
+            Kind::Adjust(a) => a.section,
+        }
+    }
+
+    /// Whether the pill is still flowing (the window keeps redrawing while it is).
+    fn pill_moving(&self) -> bool {
+        self.pill.is_some_and(|m| m.elapsed() < PILL_SECONDS)
+    }
+
     fn select_segment(&mut self, i: usize) {
+        let from = self.current_segment();
+        if from != i {
+            self.pill = Some(PillMotion { from, started: std::time::Instant::now(), frozen: None });
+        }
         match &mut self.kind {
             Kind::Crop(_) => self.crop_aspect_changed(i),
             Kind::Frame(f) => {
@@ -332,15 +425,18 @@ impl Editor {
     // ---- painting
 
     fn paint(&self, p: &Painter, pal: &Palette) {
-        p.fill_round_rect(0.0, 0.0, W, self.height, 0.0, opaque(pal.panel));
+        // Glass: the window's blur shows through a light tint; otherwise an opaque panel.
+        p.fill_round_rect(0.0, 0.0, W, self.height, 0.0, if pal.glass { pal.backdrop } else { opaque(pal.panel) });
         let h = self.mh();
         let label = |text: &str, r: R, align: Align| p.text(text, r, 12.0, Weight::Regular, pal.label, align, false);
         match &self.kind {
             Kind::Crop(c) => {
                 label("W", mac(h, 16.0, 63.0, 18.0, 18.0), Align::Leading);
-                field(p, pal, mac(h, 36.0, 60.0, 80.0, 24.0), &format!("{}", c.rect.w.round() as i64));
+                for (i, x) in [(0usize, 36.0), (1, 140.0)] {
+                    let focused = c.focus == Some(i);
+                    field(p, pal, mac(h, x, 60.0, 80.0, 24.0), &c.text[i], focused, focused && c.fresh, focused && !c.fresh && self.caret_on);
+                }
                 label("×", mac(h, 120.0, 63.0, 16.0, 18.0), Align::Center);
-                field(p, pal, mac(h, 140.0, 60.0, 80.0, 24.0), &format!("{}", c.rect.h.round() as i64));
                 label("px", mac(h, 226.0, 63.0, 24.0, 18.0), Align::Leading);
                 label("Aspect ratio", mac(h, 16.0, 101.0, 90.0, 18.0), Align::Leading);
                 let names: Vec<&str> = CROP_ASPECTS.iter().map(|a| a.0).collect();
@@ -427,28 +523,58 @@ impl Editor {
     fn paint_button(&self, p: &Painter, pal: &Palette, id: Id, title: &str, primary: bool, on: bool) {
         let Some(r) = self.rect_of(id) else { return };
         let pressed = self.pressed == Some(id);
+        // Liquid Glass buttons are capsules with a bright rim (Tachyon's style).
+        let radius = if pal.glass { r.3 / 2.0 } else { 6.0 };
         if primary {
-            p.fill_round_rect(r.0, r.1, r.2, r.3, 6.0, if pressed { Rgba(0.85, 0.36, 0.07, 1.0) } else { ACCENT });
+            p.fill_round_rect(r.0, r.1, r.2, r.3, radius, if pressed { Rgba(0.85, 0.36, 0.07, 1.0) } else { ACCENT });
+            if pal.glass {
+                p.stroke_round_rect(r.0 + 0.5, r.1 + 0.5, r.2 - 1.0, r.3 - 1.0, radius - 0.5, Rgba(1.0, 1.0, 1.0, 0.45), 1.0);
+            }
             p.text(title, r, 12.5, Weight::Semibold, Rgba::WHITE, Align::Center, false);
         } else {
-            let fill = if on { ACCENT.alpha(0.22) } else if pressed { pal.separator } else { pal.control };
-            p.fill_round_rect(r.0, r.1, r.2, r.3, 6.0, fill);
-            p.stroke_round_rect(r.0 + 0.25, r.1 + 0.25, r.2 - 0.5, r.3 - 0.5, 6.0, if on { ACCENT } else { pal.separator }, if on { 1.0 } else { 0.5 });
+            let fill = if on {
+                ACCENT.alpha(0.22)
+            } else if pressed {
+                pal.separator
+            } else if pal.glass {
+                pal.control.alpha(1.6)
+            } else {
+                pal.control
+            };
+            p.fill_round_rect(r.0, r.1, r.2, r.3, radius, fill);
+            let (stroke, width) = if on { (ACCENT, 1.0) } else if pal.glass { (pal.rim, 1.0) } else { (pal.separator, 0.5) };
+            p.stroke_round_rect(r.0 + 0.5, r.1 + 0.5, r.2 - 1.0, r.3 - 1.0, radius - 0.5, stroke, width);
             p.text(title, r, 12.5, Weight::Regular, pal.label, Align::Center, false);
         }
     }
 
     fn paint_segments(&self, p: &Painter, pal: &Palette, names: &[&str], selected: usize) {
         let Some(first) = self.rect_of(Id::Segment(0)) else { return };
-        let total = first.2 * names.len() as f32;
-        p.fill_round_rect(first.0, first.1, total, first.3, 7.0, pal.separator.alpha(0.6));
+        let n = names.len();
+        let total = first.2 * n as f32;
+        // The track: a capsule, glass-rimmed on Liquid Glass.
+        let track = (first.0, first.1, total, first.3);
+        p.fill_round_rect(track.0, track.1, track.2, track.3, track.3 / 2.0, if pal.glass { pal.control } else { pal.separator.alpha(0.6) });
+        if pal.glass {
+            p.stroke_round_rect(track.0 + 0.5, track.1 + 0.5, track.2 - 1.0, track.3 - 1.0, track.3 / 2.0 - 0.5, pal.rim, 1.0);
+        }
+        let slot = |i: usize| (first.0 + first.2 * i as f32 + 3.0, first.1 + 3.0, first.2 - 6.0, first.3 - 6.0);
+        let elapsed = self.pill.map(|m| m.elapsed()).unwrap_or(PILL_SECONDS);
+        let pieces = match self.pill {
+            Some(m) if elapsed < PILL_SECONDS && m.from < n => goo(slot(m.from), slot(selected), spring(elapsed)),
+            _ => vec![slot(selected)],
+        };
+        let (fill, rim) = if pal.glass {
+            (if pal.dark { Rgba(1.0, 1.0, 1.0, 0.16) } else { Rgba(1.0, 1.0, 1.0, 0.75) }, pal.rim)
+        } else {
+            (opaque(pal.control), pal.separator)
+        };
+        p.liquid(track, &pieces, fill, rim, self.scale);
         for (i, name) in names.iter().enumerate() {
             let r = (first.0 + first.2 * i as f32, first.1, first.2, first.3);
-            if i == selected {
-                p.fill_round_rect(r.0 + 2.0, r.1 + 2.0, r.2 - 4.0, r.3 - 4.0, 5.0, pal.control);
-                p.stroke_round_rect(r.0 + 2.0, r.1 + 2.0, r.2 - 4.0, r.3 - 4.0, 5.0, pal.separator, 0.5);
-            }
-            p.text(name, r, 12.0, if i == selected { Weight::Semibold } else { Weight::Regular }, pal.label, Align::Center, false);
+            // The label turns bold once the pill has (nearly) arrived, as in 30nama.
+            let arrived = i == selected && (self.pill.is_none() || elapsed > 0.14);
+            p.text(name, r, 12.0, if arrived { Weight::Semibold } else { Weight::Regular }, pal.label, Align::Center, false);
         }
     }
 
@@ -499,8 +625,22 @@ impl Editor {
     // ---- pointer
 
     fn pointer_down(&mut self, x: f32, y: f32) -> bool {
-        let Some(id) = self.hit(x, y) else { return false };
+        let id = self.hit(x, y);
+        // Clicking away from a field being typed in applies it.
+        if let Kind::Crop(c) = &self.kind {
+            if c.focus.is_some() && !matches!(id, Some(Id::Field(_))) {
+                self.crop_size_edited();
+            }
+        }
+        let Some(id) = id else { return true };
         match id {
+            Id::Field(i) => {
+                if let Kind::Crop(c) = &mut self.kind {
+                    c.focus = Some(i);
+                    c.fresh = true;
+                    self.caret_on = true;
+                }
+            }
             Id::Segment(i) => self.select_segment(i),
             Id::Slider(i) => {
                 self.slider_drag = Some(i);
@@ -564,10 +704,22 @@ fn opaque(c: Rgba) -> Rgba {
     Rgba(c.0, c.1, c.2, 1.0)
 }
 
-fn field(p: &Painter, pal: &Palette, r: R, text: &str) {
-    p.fill_round_rect(r.0, r.1, r.2, r.3, 4.0, pal.control);
-    p.stroke_round_rect(r.0 + 0.25, r.1 + 0.25, r.2 - 0.5, r.3 - 0.5, 4.0, pal.separator, 1.0);
-    p.text(text, (r.0 + 6.0, r.1, r.2 - 12.0, r.3), 12.0, Weight::Regular, pal.label, Align::Leading, false);
+/// A text field: pill-shaped like Tachyon's inputs; selected text when it was just focused,
+/// a caret while typing.
+fn field(p: &Painter, pal: &Palette, r: R, text: &str, focused: bool, selected: bool, caret: bool) {
+    let radius = r.3 / 2.0;
+    p.fill_round_rect(r.0, r.1, r.2, r.3, radius, if focused && pal.glass { pal.control.alpha(2.2) } else { pal.control });
+    let border = if focused { ACCENT } else if pal.glass { pal.rim } else { pal.separator };
+    p.stroke_round_rect(r.0 + 0.5, r.1 + 0.5, r.2 - 1.0, r.3 - 1.0, radius, border, if focused { 1.5 } else { 1.0 });
+    let tx = r.0 + 10.0;
+    let width = p.text_width(text, 12.0, Weight::Regular);
+    if selected && !text.is_empty() {
+        p.fill_round_rect(tx - 1.0, r.1 + 5.0, width + 2.0, r.3 - 10.0, 2.0, ACCENT.alpha(0.3));
+    }
+    p.text(text, (tx, r.1, r.2 - 20.0, r.3), 12.0, Weight::Regular, pal.label, Align::Leading, false);
+    if caret {
+        p.line(tx + width + 1.0, r.1 + 5.0, tx + width + 1.0, r.1 + r.3 - 5.0, pal.label, 1.0);
+    }
 }
 
 fn draw_image(p: &Painter, img: &image::RgbaImage, area: R) {
@@ -575,24 +727,14 @@ fn draw_image(p: &Painter, img: &image::RgbaImage, area: R) {
     p.image(img.as_raw(), img.width(), img.height(), r);
 }
 
-fn set_text(hwnd: HWND, s: &str) {
-    unsafe {
-        let _ = SetWindowTextW(hwnd, &HSTRING::from(s));
-    }
-}
-
-fn get_number(hwnd: HWND) -> Option<i64> {
-    let mut buf = [0u16; 32];
-    let n = unsafe { GetWindowTextW(hwnd, &mut buf) } as usize;
-    String::from_utf16_lossy(&buf[..n]).trim().parse().ok()
-}
-
 // ------------------------------------------------------------------ window
 
 struct Messages {
     editor: Rc<RefCell<Editor>>,
-    background: RefCell<Option<HBRUSH>>,
 }
+
+const CARET_TIMER: usize = 2;
+const PILL_TIMER: usize = 3;
 
 fn scale_of(hwnd: HWND) -> f32 {
     (unsafe { GetDpiForWindow(hwnd) }.max(96)) as f32 / 96.0
@@ -616,39 +758,6 @@ fn finish(hwnd: HWND, e: &Editor) {
     }
 }
 
-/// Positions the native size fields over their painted boxes.
-fn place_fields(hwnd: HWND, e: &Editor) {
-    let Kind::Crop(c) = &e.kind else { return };
-    let Some((wf, hf)) = c.fields else { return };
-    let s = scale_of(hwnd);
-    let h = e.mh();
-    let font = field_font(s);
-    for (f, x) in [(wf, 36.0), (hf, 140.0)] {
-        let r = mac(h, x, 60.0, 80.0, 24.0);
-        unsafe {
-            let _ = SetWindowPos(f, None, ((r.0 + 5.0) * s) as i32, ((r.1 + 4.0) * s) as i32, ((r.2 - 10.0) * s) as i32, ((r.3 - 8.0) * s) as i32, SWP_NOZORDER | SWP_NOACTIVATE);
-            SendMessageW(f, WM_SETFONT, Some(WPARAM(font.0 as usize)), Some(LPARAM(1)));
-        }
-    }
-}
-
-fn field_font(scale: f32) -> HFONT {
-    thread_local! {
-        static FONTS: RefCell<Vec<(u32, HFONT)>> = const { RefCell::new(Vec::new()) };
-    }
-    let key = (scale * 100.0) as u32;
-    FONTS.with(|f| {
-        if let Some((_, font)) = f.borrow().iter().find(|(k, _)| *k == key) {
-            return *font;
-        }
-        let font = unsafe {
-            CreateFontW(-(12.0 * scale).round() as i32, 0, 0, 0, FW_NORMAL.0 as i32, 0, 0, 0, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, CLEARTYPE_QUALITY, (FF_SWISS.0 | VARIABLE_PITCH.0) as u32, &HSTRING::from("Segoe UI"))
-        };
-        f.borrow_mut().push((key, font));
-        font
-    })
-}
-
 impl Handler for Messages {
     fn message(&self, hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> Option<LRESULT> {
         let dip = |l: LPARAM| {
@@ -662,6 +771,9 @@ impl Handler for Messages {
                     let dc = BeginPaint(hwnd, &mut ps);
                     let mut r = RECT::default();
                     let _ = GetClientRect(hwnd, &mut r);
+                    if let Ok(mut e) = self.editor.try_borrow_mut() {
+                        e.scale = scale_of(hwnd);
+                    }
                     if let (Ok(surface), Ok(e)) = (Surface::new(r.right, r.bottom), self.editor.try_borrow()) {
                         let pal = Palette::current();
                         surface.draw(scale_of(hwnd), |p| e.paint(p, &pal));
@@ -677,9 +789,13 @@ impl Handler for Messages {
                     let _ = SetFocus(Some(hwnd));
                 }
                 let (x, y) = dip(lparam);
-                if self.editor.try_borrow_mut().ok()?.pointer_down(x, y) {
+                let mut e = self.editor.try_borrow_mut().ok()?;
+                if e.pointer_down(x, y) {
                     unsafe { SetCapture(hwnd) };
                     refresh(hwnd);
+                }
+                if e.pill_moving() {
+                    unsafe { SetTimer(Some(hwnd), PILL_TIMER, 15, None) };
                 }
                 Some(LRESULT(0))
             }
@@ -746,36 +862,94 @@ impl Handler for Messages {
                 }
                 Some(LRESULT(0))
             }
-            WM_COMMAND => {
-                // A size field lost focus: apply what was typed.
-                let code = ((wparam.0 >> 16) & 0xffff) as u32;
-                if code == EN_KILLFOCUS {
-                    self.editor.try_borrow_mut().ok()?.crop_size_edited();
-                    refresh(hwnd);
-                }
-                Some(LRESULT(0))
-            }
-            WM_CTLCOLOREDIT => {
-                let pal = Palette::current();
-                let to_ref = |c: Rgba| COLORREF((c.0 * 255.0) as u32 | ((c.1 * 255.0) as u32) << 8 | ((c.2 * 255.0) as u32) << 16);
-                let dc = HDC(wparam.0 as *mut _);
-                unsafe {
-                    SetTextColor(dc, to_ref(pal.label));
-                    SetBkColor(dc, to_ref(pal.control));
-                }
-                let mut bg = self.background.borrow_mut();
-                let brush = *bg.get_or_insert_with(|| unsafe { CreateSolidBrush(to_ref(pal.control)) });
-                Some(LRESULT(brush.0 as isize))
-            }
             WM_KEYDOWN => {
                 let vk = VIRTUAL_KEY(wparam.0 as u16);
-                if vk == VK_RETURN {
+                let mut e = self.editor.try_borrow_mut().ok()?;
+                let typing = matches!(&e.kind, Kind::Crop(c) if c.focus.is_some());
+                if typing {
+                    match vk {
+                        VK_RETURN => e.crop_size_edited(),
+                        VK_TAB => {
+                            if let Kind::Crop(c) = &mut e.kind {
+                                c.focus = c.focus.map(|i| 1 - i);
+                                c.fresh = true;
+                            }
+                        }
+                        VK_ESCAPE => {
+                            if let Kind::Crop(c) = &mut e.kind {
+                                c.focus = None;
+                                let r = c.rect;
+                                e.set_crop(r);
+                            }
+                        }
+                        VK_BACK => {
+                            if let Kind::Crop(c) = &mut e.kind {
+                                if let Some(i) = c.focus {
+                                    if c.fresh {
+                                        c.text[i].clear();
+                                    } else {
+                                        c.text[i].pop();
+                                    }
+                                    c.fresh = false;
+                                }
+                            }
+                        }
+                        _ => {}
+                    }
+                    e.caret_on = true;
+                    drop(e);
+                    refresh(hwnd);
+                } else if vk == VK_RETURN {
+                    drop(e);
                     let e = self.editor.borrow();
                     finish(hwnd, &e);
                 } else if vk == VK_ESCAPE {
+                    drop(e);
                     unsafe {
                         let _ = DestroyWindow(hwnd);
                     }
+                }
+                Some(LRESULT(0))
+            }
+            WM_CHAR => {
+                let mut e = self.editor.try_borrow_mut().ok()?;
+                if let Kind::Crop(c) = &mut e.kind {
+                    if let (Some(i), Some(ch)) = (c.focus, char::from_u32(wparam.0 as u32)) {
+                        if ch.is_ascii_digit() {
+                            if c.fresh {
+                                c.text[i].clear();
+                                c.fresh = false;
+                            }
+                            if c.text[i].len() < 6 {
+                                c.text[i].push(ch);
+                            }
+                        }
+                    }
+                }
+                e.caret_on = true;
+                drop(e);
+                refresh(hwnd);
+                Some(LRESULT(0))
+            }
+            WM_TIMER if wparam.0 == PILL_TIMER => {
+                let moving = self.editor.try_borrow().map(|e| e.pill_moving()).unwrap_or(true);
+                if !moving {
+                    unsafe {
+                        let _ = KillTimer(Some(hwnd), PILL_TIMER);
+                    }
+                    if let Ok(mut e) = self.editor.try_borrow_mut() {
+                        e.pill = None;
+                    }
+                }
+                refresh(hwnd);
+                Some(LRESULT(0))
+            }
+            WM_TIMER if wparam.0 == CARET_TIMER => {
+                let mut e = self.editor.try_borrow_mut().ok()?;
+                if matches!(&e.kind, Kind::Crop(c) if c.focus.is_some()) {
+                    e.caret_on = !e.caret_on;
+                    drop(e);
+                    refresh(hwnd);
                 }
                 Some(LRESULT(0))
             }
@@ -784,24 +958,15 @@ impl Handler for Messages {
                 unsafe {
                     let _ = SetWindowPos(hwnd, None, r.left, r.top, r.right - r.left, r.bottom - r.top, SWP_NOZORDER | SWP_NOACTIVATE);
                 }
-                if let Ok(e) = self.editor.try_borrow() {
-                    place_fields(hwnd, &e);
-                }
                 refresh(hwnd);
                 Some(LRESULT(0))
             }
             WM_SETTINGCHANGE => {
                 apply_theme(hwnd);
-                self.background.borrow_mut().take();
                 refresh(hwnd);
                 None
             }
             WM_DESTROY => {
-                if let Some(b) = self.background.borrow_mut().take() {
-                    unsafe {
-                        let _ = DeleteObject(b.into());
-                    }
-                }
                 events::post(UiEvent::WindowClosed { window: hwnd.0 as isize });
                 None
             }
@@ -810,10 +975,30 @@ impl Handler for Messages {
     }
 }
 
-fn apply_theme(hwnd: HWND) {
-    let dark: i32 = system::is_dark() as i32;
+/// Title bar colour and the Liquid Glass blur for a window.
+pub(super) fn apply_theme(hwnd: HWND) {
+    let pal = Palette::current();
+    let dark: i32 = pal.dark as i32;
     unsafe {
         let _ = DwmSetWindowAttribute(hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE, &dark as *const i32 as *const _, 4);
+    }
+    system::set_blur(hwnd, pal.glass);
+}
+
+/// Re-applies the theme to every editor and Float window (after the Theme menu changes).
+pub fn refresh_all() {
+    unsafe extern "system" fn each(hwnd: HWND, _: LPARAM) -> windows::core::BOOL {
+        let mut title = [0u16; 32];
+        let n = GetWindowTextW(hwnd, &mut title) as usize;
+        if matches!(String::from_utf16_lossy(&title[..n]).as_str(), "Crop Image" | "Add Background" | "Edit Photo" | "Float") {
+            apply_theme(hwnd);
+            SendMessageW(hwnd, WM_SETTINGCHANGE, None, None);
+            let _ = InvalidateRect(Some(hwnd), None, true);
+        }
+        true.into()
+    }
+    unsafe {
+        let _ = EnumThreadWindows(windows::Win32::System::Threading::GetCurrentThreadId(), Some(each), LPARAM(0));
     }
 }
 
@@ -835,7 +1020,7 @@ fn build(tool: Tool, files: Vec<PathBuf>) -> Result<Editor, String> {
     let img = imaging::load(first).map_err(|e| e.to_string())?;
     let size = imaging::size(&img);
     let (kind, mac_height) = match tool {
-        Tool::CropImage => (Kind::Crop(CropState { image: img, size, rect: Rect::new(0.0, 0.0, size.0, size.1), aspect_index: 0, drag: None, fields: None }), 640.0),
+        Tool::CropImage => (Kind::Crop(CropState { image: img, size, rect: Rect::new(0.0, 0.0, size.0, size.1), aspect_index: 0, drag: None, text: [format!("{}", size.0 as i64), format!("{}", size.1 as i64)], focus: None, fresh: false }), 640.0),
         Tool::EditImage => {
             let (preview_src, _) = preview_source(&img)?;
             (Kind::Adjust(AdjustState { preview_src, adjustments: Adjustments::default(), section: 0, show_original: false, preview: None }), 780.0)
@@ -850,7 +1035,7 @@ fn build(tool: Tool, files: Vec<PathBuf>) -> Result<Editor, String> {
             )
         }
     };
-    let mut e = Editor { kind, files, height: mac_height - TITLE, pressed: None, slider_drag: None };
+    let mut e = Editor { kind, files, height: mac_height - TITLE, pressed: None, slider_drag: None, caret_on: true, scale: 1.0, pill: None };
     e.render_frame_preview();
     Ok(e)
 }
@@ -875,7 +1060,7 @@ impl EditorWindow {
         let work = system::work_area_at(cx, cy);
         let x = (work.left + work.right - ww) / 2;
         let y = ((work.top + work.bottom - wh) / 2).max(work.top);
-        let hwnd = window::create(ex, style, title, x, y, ww, wh, None, Rc::new(Messages { editor: editor.clone(), background: RefCell::new(None) }));
+        let hwnd = window::create(ex, style, title, x, y, ww, wh, None, Rc::new(Messages { editor: editor.clone() }));
         apply_theme(hwnd);
         // The window may have landed on a monitor with another scale: size the client exactly.
         let s = scale_of(hwnd);
@@ -886,33 +1071,10 @@ impl EditorWindow {
                 let _ = SetWindowPos(hwnd, None, 0, 0, r.right - r.left, r.bottom - r.top, SWP_NOMOVE | SWP_NOZORDER);
             }
         }
-        {
-            let mut e = editor.borrow_mut();
-            if let Kind::Crop(c) = &mut e.kind {
-                let make = |text: String| unsafe {
-                    CreateWindowExW(
-                        WINDOW_EX_STYLE(0),
-                        &HSTRING::from("EDIT"),
-                        &HSTRING::from(text),
-                        WS_CHILD | WS_VISIBLE | WS_TABSTOP | WINDOW_STYLE((ES_NUMBER | ES_LEFT | ES_AUTOHSCROLL) as u32),
-                        0,
-                        0,
-                        10,
-                        10,
-                        Some(hwnd),
-                        None,
-                        Some(window::instance()),
-                        None,
-                    )
-                    .unwrap_or_default()
-                };
-                c.fields = Some((make(format!("{}", c.size.0 as i64)), make(format!("{}", c.size.1 as i64))));
-            }
-        }
-        place_fields(hwnd, &editor.borrow());
         unsafe {
             let _ = ShowWindow(hwnd, SW_SHOWNORMAL);
             let _ = SetForegroundWindow(hwnd);
+            SetTimer(Some(hwnd), CARET_TIMER, GetCaretBlinkTime().max(300), None);
         }
         Ok(EditorWindow { hwnd, editor })
     }
@@ -927,37 +1089,8 @@ impl EditorWindow {
     }
 }
 
-/// Return in a size field applies the size; Tab moves between the fields.
-pub fn translate_dialog_message(msg: &MSG) -> bool {
-    if msg.message != WM_KEYDOWN {
-        return false;
-    }
-    let mut class = [0u16; 16];
-    let n = unsafe { GetClassNameW(msg.hwnd, &mut class) } as usize;
-    if !String::from_utf16_lossy(&class[..n]).eq_ignore_ascii_case("Edit") {
-        return false;
-    }
-    let Ok(parent) = (unsafe { GetParent(msg.hwnd) }) else { return false };
-    let vk = VIRTUAL_KEY(msg.wParam.0 as u16);
-    unsafe {
-        if vk == VK_RETURN {
-            // Losing focus applies the size (EN_KILLFOCUS).
-            let _ = SetFocus(Some(parent));
-            return true;
-        }
-        if vk == VK_TAB {
-            let next = GetNextDlgTabItem(parent, Some(msg.hwnd), GetKeyState(VK_SHIFT.0 as i32) < 0).unwrap_or_default();
-            if !next.is_invalid() {
-                let _ = SetFocus(Some(next));
-                SendMessageW(next, windows::Win32::UI::Controls::EM_SETSEL, Some(WPARAM(0)), Some(LPARAM(-1)));
-            }
-            return true;
-        }
-        if vk == VK_ESCAPE {
-            let _ = DestroyWindow(parent);
-            return true;
-        }
-    }
+/// The editor windows handle their own keys; nothing to translate.
+pub fn translate_dialog_message(_msg: &MSG) -> bool {
     false
 }
 
@@ -978,13 +1111,23 @@ pub fn render_png(kind: &str, files: Vec<PathBuf>, sets: &[(String, f64)], segme
     }
     if let Some(i) = segment {
         e.select_segment(i.max(0) as usize);
+        // Debug renders can freeze the liquid pill mid-flow.
+        match std::env::var("SATSUMA_PILL_AT").ok().and_then(|v| v.parse::<f32>().ok()) {
+            Some(t) => {
+                if let Some(m) = e.pill.as_mut() {
+                    m.frozen = Some(t);
+                }
+            }
+            None => e.pill = None,
+        }
     }
+    e.scale = 2.0;
     e.render_adjust_preview();
     e.render_frame_preview();
     let scale = 2.0;
     let (w, h) = ((W * scale) as i32, (e.height * scale) as i32);
     let surface = Surface::new(w, h).map_err(|err| err.message())?;
-    let pal = Palette::new(dark);
+    let pal = Palette::for_appearance(super::render_theme(), dark);
     surface.draw(scale, |p| e.paint(p, &pal));
     super::gfx::save_png(&surface.rgba(), w as u32, h as u32, out)
 }

@@ -105,7 +105,7 @@ fn hit(hwnd: HWND, s: &State, x: i32, y: i32) -> Option<usize> {
 }
 
 fn paint(p: &Painter, s: &State, size: (f32, f32), pal: &Palette) {
-    p.fill_round_rect(0.0, 0.0, size.0, size.1, 0.0, pal.panel.alpha(1.0 / pal.panel.3));
+    p.fill_round_rect(0.0, 0.0, size.0, size.1, 0.0, if pal.glass { pal.backdrop } else { pal.panel.alpha(1.0 / pal.panel.3) });
     let cols = columns(size.0, s.items.len());
     if s.items.is_empty() {
         p.text("Drop to add", (0.0, 0.0, size.0, size.1), 12.0, Weight::Semibold, pal.secondary, Align::Center, false);
@@ -369,6 +369,7 @@ impl FloatWindow {
         );
         let drops = Rc::new(Drops { hwnd: std::cell::Cell::new(hwnd), state: state.clone() });
         let _ = droptarget::register(hwnd, drops);
+        super::editor::apply_theme(hwnd);
         let n = state.borrow().items.len();
         fit(hwnd, n);
         // Centre vertically on the drop point and keep it on screen.

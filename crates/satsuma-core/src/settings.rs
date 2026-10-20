@@ -56,6 +56,30 @@ impl TerminalApp {
     }
 }
 
+/// How the wheel, progress panel and windows look (Windows; macOS uses its own materials).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum Appearance {
+    /// Blurred, light glass.
+    LiquidGlass,
+    /// Blurred, smoky dark glass.
+    LiquidSmoke,
+    /// Opaque surfaces following the system light/dark mode.
+    Solid,
+}
+
+impl Appearance {
+    pub const ALL: [Appearance; 3] = [Appearance::LiquidGlass, Appearance::LiquidSmoke, Appearance::Solid];
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Appearance::LiquidGlass => "Liquid Glass",
+            Appearance::LiquidSmoke => "Liquid Glass Smoke",
+            Appearance::Solid => "Solid",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum FloatBehavior {
@@ -78,6 +102,7 @@ pub struct Settings {
     pub split_video_parts: u32,
     pub terminal: TerminalApp,
     pub float_behavior: FloatBehavior,
+    pub appearance: Appearance,
     pub has_completed_welcome: bool,
 }
 
@@ -93,6 +118,7 @@ impl Default for Settings {
             split_video_parts: 2,
             terminal: TerminalApp::choices()[0],
             float_behavior: FloatBehavior::AddToExisting,
+            appearance: Appearance::LiquidGlass,
             has_completed_welcome: false,
         }
     }

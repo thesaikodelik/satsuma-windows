@@ -6,6 +6,7 @@
 //! under the pointer at alpha 1/255 (invisible, but still hit-testable). If the drag loop
 //! delivers a drag carrying files to it, the wheel turns visible; otherwise it disappears.
 
+use super::backdrop::Backdrop;
 use super::droptarget::{self, DropHandler};
 use super::events::{self, Point, UiEvent};
 use super::gfx::{Align, Painter, Rgba, Surface, Weight};
@@ -77,6 +78,7 @@ struct State {
 pub struct WheelWindow {
     pub hwnd: HWND,
     state: Rc<RefCell<State>>,
+    backdrop: Backdrop,
 }
 
 fn size_px(scale: f32) -> i32 {
@@ -89,7 +91,11 @@ pub fn paint(p: &Painter, m: &WheelModel, pal: &Palette) {
     let c = (WHEEL_VIEW_SIZE / 2.0) as f32;
     let backdrop = g.backdrop as f32;
     p.fill_circle(c, c, backdrop, pal.backdrop);
-    p.stroke_circle(c, c, backdrop - 0.25, pal.separator, 0.5);
+    if pal.glass {
+        p.stroke_circle(c, c, backdrop - 0.5, pal.rim, 1.0);
+    } else {
+        p.stroke_circle(c, c, backdrop - 0.25, pal.separator, 0.5);
+    }
 
     if m.items.is_empty() {
         p.text(empty_message(m.mode), (c - 85.0, c - 30.0, 170.0, 60.0), 12.0, Weight::Semibold, pal.secondary, Align::Center, true);
@@ -100,9 +106,15 @@ pub fn paint(p: &Painter, m: &WheelModel, pal: &Palette) {
     for (i, item) in m.items.iter().enumerate() {
         let highlighted = m.selected == Some(i);
         if let Some(geo) = p.path(&g.petal_path(i, n), c, c) {
-            p.fill_geometry(&geo, if highlighted { ACCENT } else { pal.control.alpha(0.92) });
-            if !highlighted {
-                p.stroke_geometry(&geo, pal.separator, 0.5);
+            if pal.glass {
+                // Glass petals: a light tint with a bright 1 px rim; the selection is tinted glass too.
+                p.fill_geometry(&geo, if highlighted { ACCENT.alpha(0.88) } else { pal.control });
+                p.stroke_geometry(&geo, if highlighted { Rgba(1.0, 1.0, 1.0, 0.55) } else { pal.rim }, 1.0);
+            } else {
+                p.fill_geometry(&geo, if highlighted { ACCENT } else { pal.control.alpha(0.92) });
+                if !highlighted {
+                    p.stroke_geometry(&geo, pal.separator, 0.5);
+                }
             }
         }
         let color = if highlighted { Rgba::WHITE } else { pal.label };
@@ -121,7 +133,12 @@ pub fn paint(p: &Painter, m: &WheelModel, pal: &Palette) {
     let selected = m.selected.and_then(|i| m.items.get(i));
     if selected.is_some() || !m.hub.is_empty() {
         let r = (g.inner - 6.0) as f32;
-        p.fill_circle(c, c, r, pal.control.alpha(if selected.is_some() { 1.0 } else { 0.85 }));
+        if pal.glass {
+            p.fill_circle(c, c, r, pal.control);
+            p.stroke_circle(c, c, r - 0.5, pal.rim, 1.0);
+        } else {
+            p.fill_circle(c, c, r, pal.control.alpha(if selected.is_some() { 1.0 } else { 0.85 }));
+        }
     }
     if let Some(item) = selected {
         // The result's size, with the petal's name under it.
@@ -166,6 +183,16 @@ impl State {
     fn origin(&self) -> Point {
         let half = size_px(self.scale) / 2;
         (self.anchor.0 - half, self.anchor.1 - half)
+    }
+}
+
+/// Liquid Glass: blur what is behind the wheel's disc (none for the invisible probe).
+fn glass(hwnd: HWND, backdrop: &Backdrop, s: &State) {
+    if s.palette.glass && !s.probing && s.visible {
+        let r = (WheelGeometry::default().backdrop as f32 * s.scale).round() as i32;
+        backdrop.show(hwnd, s.anchor.0 - r, s.anchor.1 - r, 2 * r, 2 * r, r);
+    } else {
+        backdrop.hide();
     }
 }
 
@@ -372,7 +399,7 @@ impl WheelWindow {
         if let Err(e) = droptarget::register(hwnd, drops) {
             debug!("RegisterDragDrop failed: {e}");
         }
-        WheelWindow { hwnd, state }
+        WheelWindow { hwnd, state, backdrop: Backdrop::new() }
     }
 
     fn place(&self, at: Point, keyboard: bool) {
@@ -388,6 +415,7 @@ impl WheelWindow {
         );
         s.anchor = ((anchor.x * sc).round() as i32, (anchor.y * sc).round() as i32);
         s.visible = true;
+        glass(self.hwnd, &self.backdrop, &s);
         render(self.hwnd, &s);
         unsafe {
             let _ = SetWindowPos(self.hwnd, Some(HWND_TOPMOST), 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW);
@@ -403,6 +431,7 @@ impl WheelWindow {
         {
             let mut s = self.state.borrow_mut();
             s.probing = true;
+            s.palette = Palette::current();
             s.files.clear();
             s.model = WheelModel::new(WheelMode::Conversions, Vec::new());
             s.anchor = at;
@@ -411,6 +440,7 @@ impl WheelWindow {
         let mut s = self.state.borrow_mut();
         s.scale = system::scale_at(at.0, at.1);
         s.visible = true;
+        glass(self.hwnd, &self.backdrop, &s);
         render(self.hwnd, &s);
         drop(s);
         unsafe {
@@ -469,6 +499,7 @@ impl WheelWindow {
             s.probing = false;
             s.model.keyboard = false;
         }
+        self.backdrop.hide();
         unsafe {
             let _ = ShowWindow(self.hwnd, SW_HIDE);
         }
@@ -525,7 +556,7 @@ pub fn render_png(model: &WheelModel, dark: bool, out: &std::path::Path) -> Resu
     let scale = 2.0;
     let px = size_px(scale);
     let surface = Surface::new(px, px).map_err(|e| e.message())?;
-    let pal = Palette::new(dark);
+    let pal = Palette::for_appearance(super::render_theme(), dark);
     surface.draw(scale, |p| paint(p, model, &pal));
     super::gfx::save_png(&surface.rgba(), px as u32, px as u32, out)
 }

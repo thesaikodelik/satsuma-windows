@@ -27,6 +27,7 @@ macro_rules! debug {
 }
 
 mod app;
+mod backdrop;
 mod dragsource;
 mod droptarget;
 mod editor;
@@ -76,6 +77,16 @@ pub fn render_icon(size: usize, out: &Path) -> Result<(), String> {
 pub fn render_editor(kind: &str, files: Vec<PathBuf>, sets: &[(String, f64)], segment: Option<isize>, out: &Path) -> Result<(), String> {
     let dark = std::env::var_os("SATSUMA_DARK").is_some();
     editor::render_png(kind, files, sets, segment, dark, out)
+}
+
+/// `SATSUMA_THEME=glass|smoke|solid` picks the look of offscreen renders (default solid).
+fn render_theme() -> satsuma_core::settings::Appearance {
+    use satsuma_core::settings::Appearance;
+    match std::env::var("SATSUMA_THEME").unwrap_or_default().as_str() {
+        "glass" => Appearance::LiquidGlass,
+        "smoke" => Appearance::LiquidSmoke,
+        _ => Appearance::Solid,
+    }
 }
 
 pub fn ffmpeg_hint() -> &'static str {

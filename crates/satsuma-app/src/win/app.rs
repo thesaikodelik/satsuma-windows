@@ -14,7 +14,7 @@ use super::hud::{Hud, HudModel};
 use super::system;
 use super::wheel::{WheelModel, WheelWindow};
 use super::window::{self, Handler};
-use satsuma_core::settings::{FloatBehavior, Settings, Strength, TerminalApp};
+use satsuma_core::settings::{Appearance, FloatBehavior, Settings, Strength, TerminalApp};
 use satsuma_core::wheel::{initial_keyboard_mode, wheel_items};
 use satsuma_core::{Action, Mods, WheelItem, WheelMode};
 use satsuma_engine::{capability, detect_format, plan, run_plan, BatchProgress, BatchReport, Cancel, Context, Env, Operation};
@@ -55,6 +55,7 @@ const CMD_IMAGE_SIZE: u32 = 300; // + index into IMAGE_SIZES
 const CMD_SPLIT: u32 = 400; // + parts
 const CMD_TERMINAL: u32 = 500; // + index into TerminalApp::choices()
 const CMD_FLOAT: u32 = 600; // + 0 existing / 1 new
+const CMD_THEME: u32 = 700; // + index into Appearance::ALL
 
 const WM_TRAY: u32 = WM_APP + 1;
 const TIMER_TICK: usize = 1;
@@ -688,6 +689,12 @@ impl Controller {
                     self.save_settings();
                 }
             }
+            id if (CMD_THEME..CMD_THEME + Appearance::ALL.len() as u32).contains(&id) => {
+                self.settings.appearance = Appearance::ALL[(id - CMD_THEME) as usize];
+                super::theme::set_appearance(self.settings.appearance);
+                self.save_settings();
+                super::editor::refresh_all();
+            }
             id if id == CMD_FLOAT || id == CMD_FLOAT + 1 => {
                 self.settings.float_behavior = if id == CMD_FLOAT + 1 { FloatBehavior::CreateNew } else { FloatBehavior::AddToExisting };
                 self.save_settings();
@@ -806,6 +813,13 @@ fn build_menu(s: &Settings, working: bool) -> Menu {
     float.item(CMD_FLOAT, "Add Files to an Existing Float", s.float_behavior == FloatBehavior::AddToExisting, true);
     float.item(CMD_FLOAT + 1, "Create a New Float", s.float_behavior == FloatBehavior::CreateNew, true);
     menu.submenu("Float", float);
+
+    let themes = Menu::new();
+    for (i, a) in Appearance::ALL.iter().enumerate() {
+        let available = *a == Appearance::Solid || system::supports_blur();
+        themes.item(CMD_THEME + i as u32, a.name(), s.appearance == *a, available);
+    }
+    menu.submenu("Theme", themes);
 
     menu.item(CMD_FEEDBACK, "Sound Feedback", s.feedback, true);
     menu.item(CMD_LOGIN, "Launch at Login", system::launch_at_login(), true);
@@ -928,6 +942,7 @@ pub fn run() {
     let settings_path = Settings::default_path();
     let settings = Settings::load(&settings_path);
     let welcome = !settings.has_completed_welcome;
+    super::theme::set_appearance(settings.appearance);
     let tray = Tray { hwnd: main, icon: tray_icon_for_theme() };
     let mut controller = Controller {
         settings,

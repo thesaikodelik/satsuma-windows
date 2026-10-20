@@ -557,3 +557,70 @@ pub fn open_item(path: &Path) {
         ShellExecuteW(None, &HSTRING::from("open"), &HSTRING::from(path.as_os_str()), None, None, SW_SHOWNORMAL);
     }
 }
+
+// ------------------------------------------------------------------ glass
+
+/// Windows 10 1809 (build 17763) or later: blur behind windows works.
+pub fn supports_blur() -> bool {
+    static OK: OnceLock<bool> = OnceLock::new();
+    *OK.get_or_init(|| {
+        let mut buf = [0u16; 16];
+        let mut size = (buf.len() * 2) as u32;
+        let r = unsafe {
+            RegGetValueW(
+                HKEY_LOCAL_MACHINE,
+                &HSTRING::from(r"SOFTWARE\Microsoft\Windows NT\CurrentVersion"),
+                &HSTRING::from("CurrentBuildNumber"),
+                RRF_RT_REG_SZ,
+                None,
+                Some(buf.as_mut_ptr() as *mut _),
+                Some(&mut size),
+            )
+        };
+        let build: u32 = String::from_utf16_lossy(&buf[..(size as usize / 2).saturating_sub(1)]).trim().parse().unwrap_or(0);
+        r.is_ok() && build >= 17763
+    })
+}
+
+#[repr(C)]
+struct AccentPolicy {
+    state: u32,
+    flags: u32,
+    gradient_color: u32,
+    animation_id: u32,
+}
+
+#[repr(C)]
+struct CompositionData {
+    attribute: u32,
+    data: *mut std::ffi::c_void,
+    size: usize,
+}
+
+/// Turns the system blur behind a window on or off (the undocumented accent policy used by
+/// the taskbar; state 3 = blur behind). The blur follows the window's region, if it has one.
+pub fn set_blur(hwnd: HWND, on: bool) {
+    type SetWca = unsafe extern "system" fn(HWND, *mut CompositionData) -> i32;
+    static FUNC: OnceLock<Option<SetWca>> = OnceLock::new();
+    let func = FUNC.get_or_init(|| unsafe {
+        use windows::Win32::System::LibraryLoader::{GetModuleHandleW, GetProcAddress};
+        let user32 = GetModuleHandleW(&HSTRING::from("user32.dll")).ok()?;
+        let f = GetProcAddress(user32, windows::core::s!("SetWindowCompositionAttribute"))?;
+        Some(std::mem::transmute::<unsafe extern "system" fn() -> isize, SetWca>(f))
+    });
+    let Some(f) = func else { return };
+    let mut accent = AccentPolicy { state: if on && supports_blur() { 3 } else { 0 }, flags: 0, gradient_color: 0, animation_id: 0 };
+    let mut data = CompositionData { attribute: 19, data: &mut accent as *mut _ as *mut _, size: std::mem::size_of::<AccentPolicy>() };
+    unsafe {
+        f(hwnd, &mut data);
+    }
+}
+
+/// Limits a window to an ellipse or rounded rectangle (pixels, window coordinates); `None` clears it.
+pub fn set_region(hwnd: HWND, shape: Option<(i32, i32, i32, i32, i32)>) {
+    unsafe {
+        let rgn = shape.map(|(x, y, w, h, r)| if r * 2 >= w.min(h) { CreateEllipticRgn(x, y, x + w + 1, y + h + 1) } else { CreateRoundRectRgn(x, y, x + w + 1, y + h + 1, r * 2, r * 2) });
+        // The system owns the region afterwards.
+        SetWindowRgn(hwnd, rgn, true);
+    }
+}
