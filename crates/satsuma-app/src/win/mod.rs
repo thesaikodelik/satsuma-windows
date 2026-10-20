@@ -48,7 +48,7 @@ use std::path::{Path, PathBuf};
 
 pub use app::run;
 #[cfg(debug_assertions)]
-pub use selftest::{selftest_drag, selftest_screenshot};
+pub use selftest::{selftest_click, selftest_drag, selftest_screenshot};
 
 /// Lets `satsuma.exe <command>` print to the terminal that started it.
 pub fn attach_console() {
@@ -90,9 +90,7 @@ pub fn render_editor(kind: &str, files: Vec<PathBuf>, sets: &[(String, f64)], se
 fn render_theme() -> satsuma_core::settings::Appearance {
     use satsuma_core::settings::Appearance;
     match std::env::var("SATSUMA_THEME").unwrap_or_default().as_str() {
-        "glass" => Appearance::LiquidGlass,
-        "smoke" => Appearance::LiquidSmoke,
-        "nama" => Appearance::NamaGlass,
+        "liquid" | "glass" => Appearance::Liquid,
         _ => Appearance::Solid,
     }
 }

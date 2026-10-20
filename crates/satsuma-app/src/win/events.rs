@@ -23,6 +23,8 @@ pub enum UiEvent {
     WindowClosed { window: isize },
     EditorApply { op: Operation, files: Vec<PathBuf>, at: Point },
     WindowDeactivated { window: isize },
+    /// The Settings window changed the look (already applied; the app saves it).
+    AppearanceChanged { appearance: satsuma_core::settings::Appearance, transparency: u8 },
 }
 
 thread_local! {

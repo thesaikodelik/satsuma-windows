@@ -390,6 +390,18 @@ impl Painter {
         }
     }
 
+    /// Draws `f` shifted by `(dx, dy)` DIPs.
+    pub fn translated(&self, dx: f32, dy: f32, f: &dyn Fn(&Painter)) {
+        unsafe {
+            let mut m = Matrix3x2::default();
+            self.rt.GetTransform(&mut m);
+            let moved = Matrix3x2 { M31: m.M31 + dx * m.M11, M32: m.M32 + dy * m.M22, ..m };
+            self.rt.SetTransform(&moved);
+            f(self);
+            self.rt.SetTransform(&m);
+        }
+    }
+
     /// Width of one line of text in DIPs.
     pub fn text_width(&self, s: &str, size: f32, weight: Weight) -> f32 {
         let Some(format) = text_format("Segoe UI", size, weight, false) else { return 0.0 };

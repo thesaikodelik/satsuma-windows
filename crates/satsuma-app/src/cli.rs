@@ -71,6 +71,8 @@ pub fn run(args: &[String]) -> i32 {
         "selftest-drag" => crate::platform::selftest_drag(rest),
         #[cfg(all(windows, debug_assertions))]
         "selftest-screenshot" => crate::platform::selftest_screenshot(rest),
+        #[cfg(all(windows, debug_assertions))]
+        "selftest-click" => crate::platform::selftest_click(rest),
         other => {
             eprintln!("Unknown command `{other}`.\n\n{USAGE}");
             2

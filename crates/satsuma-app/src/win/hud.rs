@@ -43,7 +43,7 @@ fn paint(p: &Painter, m: &HudModel, pal: &Palette, behind: Option<&(Vec<u8>, u32
     if let (true, Some((px, w, h))) = (pal.glass, behind) {
         p.fill_round_rect_image((x, y, WIDTH, HEIGHT), 14.0, (0.0, 0.0, WIDTH + MARGIN * 2.0, HEIGHT + MARGIN * 2.0), px, *w, *h);
     }
-    if pal.nama {
+    if pal.glass {
         // 30nama's drawn glass: tint, faint body, glare from above, lit rim.
         let white = |a: f32| super::gfx::Rgba(1.0, 1.0, 1.0, a);
         p.fill_round_rect(x, y, WIDTH, HEIGHT, 14.0, pal.panel);
@@ -52,10 +52,6 @@ fn paint(p: &Painter, m: &HudModel, pal: &Palette, behind: Option<&(Vec<u8>, u32
         p.round_rect_gradient(x, y, WIDTH, HEIGHT, 14.0, &glare, (x, y), (x, y + HEIGHT), None);
         let rim = [(0.0, white(0.55)), (1.0 / 3.0, white(0.12)), (2.0 / 3.0, white(0.05)), (1.0, white(0.22))];
         p.round_rect_gradient(x + 0.6, y + 0.6, WIDTH - 1.2, HEIGHT - 1.2, 13.4, &rim, (x, y), (x, y + HEIGHT), Some(1.2));
-    } else if pal.glass {
-        // Glass: the blur shows through a light tint; a bright rim instead of a shadow.
-        p.fill_round_rect(x, y, WIDTH, HEIGHT, 14.0, pal.panel);
-        p.stroke_round_rect(x + 0.5, y + 0.5, WIDTH - 1.0, HEIGHT - 1.0, 13.5, pal.rim, 1.0);
     } else {
         // Soft shadow, then the panel.
         for i in 1..=4 {
@@ -100,7 +96,7 @@ fn glass(hwnd: HWND, s: &mut State) {
             let _ = ShowWindow(hwnd, SW_HIDE);
         }
         if let Some(mut img) = super::gfx::capture_screen(s.origin.0, s.origin.1, w, h) {
-            super::gfx::blur_rgba(&mut img, w as usize, h as usize, 9.0 * s.scale);
+            super::gfx::blur_rgba(&mut img, w as usize, h as usize, super::theme::blur_sigma() * s.scale);
             s.behind = Some((img, w as u32, h as u32));
         }
     }

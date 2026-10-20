@@ -202,7 +202,7 @@ pub fn paint(p: &Painter, m: &WheelModel, pal: &Palette, behind: Option<&Behind>
     let c = (WHEEL_VIEW_SIZE / 2.0) as f32;
     let backdrop = g.backdrop as f32;
     let disc = (c - backdrop, c - backdrop, backdrop * 2.0, backdrop * 2.0);
-    if pal.nama {
+    if pal.glass {
         // A soft shadow under the glass (black 22 %, radius 7, 3 down).
         for k in (1..=5).rev() {
             p.fill_circle(c, c + 3.0, backdrop + k as f32 * 1.3, Rgba(0.0, 0.0, 0.0, 0.22 / 6.0));
@@ -213,15 +213,13 @@ pub fn paint(p: &Painter, m: &WheelModel, pal: &Palette, behind: Option<&Behind>
         p.fill_round_rect_image(disc, backdrop, (0.0, 0.0, size, size), px, *w, *h);
     }
     p.fill_circle(c, c, backdrop, pal.backdrop);
-    if pal.nama {
+    if pal.glass {
         // 30nama's drawn glass: a faint body, a glare from above and a lit rim.
         p.fill_circle(c, c, backdrop, white(0.02));
         let glare: Vec<(f32, Rgba)> = [0.0, 0.5, 0.7, 1.0].iter().map(|v| (*v, white(nama_glare(false, *v)))).collect();
         p.round_rect_gradient(disc.0, disc.1, disc.2, disc.3, backdrop, &glare, (c, disc.1), (c, disc.1 + disc.3), None);
         let rim: Vec<(f32, Rgba)> = [0.0, 1.0 / 3.0, 2.0 / 3.0, 1.0].iter().map(|v| (*v, white(nama_rim(false, *v)))).collect();
         p.round_rect_gradient(disc.0 + 0.6, disc.1 + 0.6, disc.2 - 1.2, disc.3 - 1.2, backdrop - 0.6, &rim, (c, disc.1), (c, disc.1 + disc.3), Some(1.2));
-    } else if pal.glass {
-        p.stroke_circle(c, c, backdrop - 0.5, pal.rim, 1.0);
     } else {
         p.stroke_circle(c, c, backdrop - 0.25, pal.separator, 0.5);
     }
@@ -235,12 +233,9 @@ pub fn paint(p: &Painter, m: &WheelModel, pal: &Palette, behind: Option<&Behind>
     // Plain petals; the highlight is drawn on top as liquid so it can flow between them.
     for i in 0..n {
         if let Some(geo) = p.path(&g.petal_path(i, n), c, c) {
-            if pal.nama {
+            if pal.glass {
                 // 30nama's tabs have no surface of their own; a whisper keeps petals apart.
                 p.fill_geometry(&geo, white(0.035));
-            } else if pal.glass {
-                p.fill_geometry(&geo, pal.control);
-                p.stroke_geometry(&geo, pal.rim, 1.0);
             } else {
                 p.fill_geometry(&geo, pal.control.alpha(0.92));
                 p.stroke_geometry(&geo, pal.separator, 0.5);
@@ -260,7 +255,7 @@ pub fn paint(p: &Painter, m: &WheelModel, pal: &Palette, behind: Option<&Behind>
     if let Some(sel) = selected {
         let o = g.outer as f32 + 2.0;
         let area = (c - o, c - o, o * 2.0, o * 2.0);
-        if pal.nama {
+        if pal.glass {
             // The lit glass pill: white body and glare over the pill's height, a bright rim.
             let (top, bottom) = sector_rows(petal_sector(sel, n), c);
             let span = (bottom - top).max(1.0);
@@ -269,8 +264,7 @@ pub fn paint(p: &Painter, m: &WheelModel, pal: &Palette, behind: Option<&Behind>
                 (white(0.10 + nama_glare(true, v)), white(nama_rim(true, v)))
             }, &liquid);
         } else {
-            let (fill, rim) = if pal.glass { (ACCENT.alpha(0.88), white(0.55)) } else { (ACCENT, white(0.0)) };
-            p.sdf_fill(area, scale, fill, rim, &liquid);
+            p.sdf_fill(area, scale, ACCENT, white(0.0), &liquid);
         }
     }
     for (i, item) in m.items.iter().enumerate() {
@@ -278,7 +272,7 @@ pub fn paint(p: &Painter, m: &WheelModel, pal: &Palette, behind: Option<&Behind>
         let (x, y) = (c + lp.x as f32, c - lp.y as f32);
         // A label is lit while the liquid is under it.
         let lit = !pieces.is_empty() && liquid(x, y) < -2.0;
-        let color = match (pal.nama, lit) {
+        let color = match (pal.glass, lit) {
             (true, true) => pal.label,
             (true, false) => pal.secondary,
             (false, true) => Rgba::WHITE,
@@ -295,16 +289,13 @@ pub fn paint(p: &Painter, m: &WheelModel, pal: &Palette, behind: Option<&Behind>
     }
 
     let selected = m.selected.and_then(|i| m.items.get(i));
-    let accent = if pal.nama { pal.label } else { ACCENT };
+    let accent = if pal.glass { pal.label } else { ACCENT };
     if selected.is_some() || !m.hub.is_empty() {
         let r = (g.inner - 6.0) as f32;
-        if pal.nama {
+        if pal.glass {
             p.fill_circle(c, c, r, white(0.04));
             let rim: Vec<(f32, Rgba)> = [0.0, 1.0 / 3.0, 2.0 / 3.0, 1.0].iter().map(|v| (*v, white(nama_rim(false, *v)))).collect();
             p.round_rect_gradient(c - r + 0.6, c - r + 0.6, 2.0 * r - 1.2, 2.0 * r - 1.2, r - 0.6, &rim, (c, c - r), (c, c + r), Some(1.2));
-        } else if pal.glass {
-            p.fill_circle(c, c, r, pal.control);
-            p.stroke_circle(c, c, r - 0.5, pal.rim, 1.0);
         } else {
             p.fill_circle(c, c, r, pal.control.alpha(if selected.is_some() { 1.0 } else { 0.85 }));
         }
@@ -363,7 +354,7 @@ fn glass(s: &mut State) {
         let px = size_px(s.scale);
         let (x, y) = s.origin();
         if let Some(mut img) = super::gfx::capture_screen(x, y, px, px) {
-            super::gfx::blur_rgba(&mut img, px as usize, px as usize, 9.0 * s.scale);
+            super::gfx::blur_rgba(&mut img, px as usize, px as usize, super::theme::blur_sigma() * s.scale);
             s.behind = Some((img, px as u32, px as u32));
         }
     }

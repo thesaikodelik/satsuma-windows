@@ -60,24 +60,20 @@ impl TerminalApp {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum Appearance {
-    /// Blurred, light glass.
-    LiquidGlass,
-    /// Blurred, smoky dark glass.
-    LiquidSmoke,
-    /// 30nama's drawn glass: dark acrylic, a glare from above, a lit rim and a white pill.
-    NamaGlass,
+    /// Blurred glass in 30nama's style: a tinted backdrop, a glare from above, a lit rim and
+    /// a liquid highlight. Earlier glass themes load as this.
+    #[serde(alias = "liquidGlass", alias = "liquidSmoke", alias = "namaGlass")]
+    Liquid,
     /// Opaque surfaces following the system light/dark mode.
     Solid,
 }
 
 impl Appearance {
-    pub const ALL: [Appearance; 4] = [Appearance::LiquidGlass, Appearance::LiquidSmoke, Appearance::NamaGlass, Appearance::Solid];
+    pub const ALL: [Appearance; 2] = [Appearance::Liquid, Appearance::Solid];
 
     pub fn name(self) -> &'static str {
         match self {
-            Appearance::LiquidGlass => "Liquid Glass",
-            Appearance::LiquidSmoke => "Liquid Glass Smoke",
-            Appearance::NamaGlass => "30nama Glass",
+            Appearance::Liquid => "Liquid",
             Appearance::Solid => "Solid",
         }
     }
@@ -106,6 +102,8 @@ pub struct Settings {
     pub terminal: TerminalApp,
     pub float_behavior: FloatBehavior,
     pub appearance: Appearance,
+    /// How see-through Liquid surfaces are, 0 (frosted) to 100 (clear).
+    pub transparency: u8,
     pub has_completed_welcome: bool,
 }
 
@@ -121,7 +119,8 @@ impl Default for Settings {
             split_video_parts: 2,
             terminal: TerminalApp::choices()[0],
             float_behavior: FloatBehavior::AddToExisting,
-            appearance: Appearance::LiquidGlass,
+            appearance: Appearance::Liquid,
+            transparency: 45,
             has_completed_welcome: false,
         }
     }
@@ -177,6 +176,14 @@ mod tests {
         s.save(&path).unwrap();
         assert_eq!(Settings::load(&path), s);
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn old_glass_themes_load_as_liquid() {
+        let s: Settings = serde_json::from_str(r#"{"appearance": "liquidSmoke", "transparency": 70}"#).unwrap();
+        assert_eq!(s.appearance, Appearance::Liquid);
+        assert_eq!(s.transparency, 70);
+        assert_eq!(Settings::default().transparency, 45);
     }
 
     #[test]

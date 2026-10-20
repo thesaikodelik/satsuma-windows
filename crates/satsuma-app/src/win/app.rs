@@ -14,7 +14,7 @@ use super::hud::{Hud, HudModel};
 use super::system;
 use super::wheel::{WheelModel, WheelWindow};
 use super::window::{self, Handler};
-use satsuma_core::settings::{Appearance, FloatBehavior, Settings, Strength, TerminalApp};
+use satsuma_core::settings::{FloatBehavior, Settings, Strength, TerminalApp};
 use satsuma_core::wheel::{initial_keyboard_mode, wheel_items};
 use satsuma_core::{Action, Mods, WheelItem, WheelMode};
 use satsuma_engine::{capability, detect_format, plan, run_plan, BatchProgress, BatchReport, Cancel, Context, Env, Operation};
@@ -49,13 +49,13 @@ const CMD_HELP: u32 = 2;
 const CMD_QUIT: u32 = 3;
 const CMD_FEEDBACK: u32 = 4;
 const CMD_LOGIN: u32 = 5;
+const CMD_SETTINGS: u32 = 6;
 const CMD_WHEEL_KEY: u32 = 100; // + mode * 16 + choice
 const CMD_STRENGTH: u32 = 200; // + 0/1 images, 10/11 video, 20/21 audio
 const CMD_IMAGE_SIZE: u32 = 300; // + index into IMAGE_SIZES
 const CMD_SPLIT: u32 = 400; // + parts
 const CMD_TERMINAL: u32 = 500; // + index into TerminalApp::choices()
 const CMD_FLOAT: u32 = 600; // + 0 existing / 1 new
-const CMD_THEME: u32 = 700; // + index into Appearance::ALL
 
 const WM_TRAY: u32 = WM_APP + 1;
 const TIMER_TICK: usize = 1;
@@ -464,6 +464,12 @@ impl Controller {
                 self.editors.retain(|e| e.id() != window);
             }
             UiEvent::EditorApply { op, files, at } => self.enqueue(PendingJob { op, files, at }),
+            UiEvent::AppearanceChanged { appearance, transparency } => {
+                self.settings.appearance = appearance;
+                self.settings.transparency = transparency;
+                self.save_settings();
+                super::editor::refresh_all();
+            }
             UiEvent::WindowDeactivated { window } => {
                 if self.keyboard_files.is_some() && self.wheel.hwnd.0 as isize == window {
                     self.keyboard_files = None;
@@ -485,6 +491,18 @@ impl Controller {
             WheelItem::Tool(t) => self.enqueue(PendingJob { op: Operation::Tool(t), files, at }),
             WheelItem::Action(action) => self.perform_action(action, files, at),
         }
+    }
+
+    /// Shows the Settings window (or brings the open one forward).
+    fn open_settings(&mut self) {
+        let existing = unsafe { FindWindowW(None, &HSTRING::from(super::editor::SETTINGS_TITLE)) };
+        if let Some(hwnd) = existing.ok().filter(|h| !h.is_invalid()) {
+            unsafe {
+                let _ = SetForegroundWindow(hwnd);
+            }
+            return;
+        }
+        self.editors.push(EditorWindow::settings(self.settings.appearance, self.settings.transparency));
     }
 
     fn open_editor(&mut self, tool: satsuma_core::Tool, files: Vec<PathBuf>) {
@@ -642,6 +660,7 @@ impl Controller {
         match id {
             CMD_CONVERT => {}
             CMD_HELP => self.deferred.push(Deferred::Welcome),
+            CMD_SETTINGS => self.open_settings(),
             CMD_QUIT => unsafe { PostQuitMessage(0) },
             CMD_FEEDBACK => {
                 self.settings.feedback = !self.settings.feedback;
@@ -690,12 +709,6 @@ impl Controller {
                     self.settings.terminal = *app;
                     self.save_settings();
                 }
-            }
-            id if (CMD_THEME..CMD_THEME + Appearance::ALL.len() as u32).contains(&id) => {
-                self.settings.appearance = Appearance::ALL[(id - CMD_THEME) as usize];
-                super::theme::set_appearance(self.settings.appearance);
-                self.save_settings();
-                super::editor::refresh_all();
             }
             id if id == CMD_FLOAT || id == CMD_FLOAT + 1 => {
                 self.settings.float_behavior = if id == CMD_FLOAT + 1 { FloatBehavior::CreateNew } else { FloatBehavior::AddToExisting };
@@ -816,16 +829,10 @@ fn build_menu(s: &Settings, working: bool) -> Menu {
     float.item(CMD_FLOAT + 1, "Create a New Float", s.float_behavior == FloatBehavior::CreateNew, true);
     menu.submenu("Float", float);
 
-    let themes = Menu::new();
-    for (i, a) in Appearance::ALL.iter().enumerate() {
-        let available = *a == Appearance::Solid || system::supports_blur();
-        themes.item(CMD_THEME + i as u32, a.name(), s.appearance == *a, available);
-    }
-    menu.submenu("Theme", themes);
-
     menu.item(CMD_FEEDBACK, "Sound Feedback", s.feedback, true);
     menu.item(CMD_LOGIN, "Launch at Login", system::launch_at_login(), true);
     menu.separator();
+    menu.item(CMD_SETTINGS, "Settings…", false, true);
     menu.item(CMD_HELP, "How to Use Satsuma", false, true);
     menu.item(CMD_QUIT, "Quit Satsuma", false, true);
     menu
@@ -945,6 +952,7 @@ pub fn run() {
     let settings = Settings::load(&settings_path);
     let welcome = !settings.has_completed_welcome;
     super::theme::set_appearance(settings.appearance);
+    super::theme::set_transparency(settings.transparency);
     let tray = Tray { hwnd: main, icon: tray_icon_for_theme() };
     let mut controller = Controller {
         settings,
@@ -977,6 +985,10 @@ pub fn run() {
     }
     let tip = controller.tip();
     controller.tray.add(&tip);
+    #[cfg(debug_assertions)]
+    if std::env::var_os("SATSUMA_OPEN_SETTINGS").is_some() {
+        controller.open_settings();
+    }
     if welcome {
         controller.settings.has_completed_welcome = true;
         controller.save_settings();

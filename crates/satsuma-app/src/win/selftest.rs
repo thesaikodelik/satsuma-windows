@@ -300,3 +300,39 @@ pub fn selftest_screenshot(args: &[String]) -> i32 {
         }
     }
 }
+
+/// `satsuma-cli selftest-click "<window title>" <x> <y> [--drag-to <x2>]`: clicks (or drags
+/// horizontally) at a point given in the window's client DIPs.
+pub fn selftest_click(args: &[String]) -> i32 {
+    let (Some(title), Some(x), Some(y)) = (args.first(), args.get(1).and_then(|v| v.parse::<f32>().ok()), args.get(2).and_then(|v| v.parse::<f32>().ok())) else {
+        eprintln!("Usage: satsuma-cli selftest-click <window title> <x> <y> [--drag-to <x2>]");
+        return 2;
+    };
+    let to = args.iter().position(|a| a == "--drag-to").and_then(|i| args.get(i + 1)).and_then(|v| v.parse::<f32>().ok());
+    unsafe {
+        let _ = windows::Win32::UI::HiDpi::SetProcessDpiAwarenessContext(windows::Win32::UI::HiDpi::DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
+        let Ok(hwnd) = FindWindowW(None, &windows::core::HSTRING::from(title.as_str())) else {
+            eprintln!("No window titled {title}");
+            return 1;
+        };
+        let scale = windows::Win32::UI::HiDpi::GetDpiForWindow(hwnd) as f32 / 96.0;
+        let at = |dx: f32| {
+            let mut p = windows::Win32::Foundation::POINT { x: (dx * scale) as i32, y: (y * scale) as i32 };
+            let _ = windows::Win32::Graphics::Gdi::ClientToScreen(hwnd, &mut p);
+            (p.x, p.y)
+        };
+        let original = super::system::cursor_pos();
+        let start = at(x);
+        let _ = SetCursorPos(start.0, start.1);
+        std::thread::sleep(Duration::from_millis(80));
+        mouse(MOUSEEVENTF_LEFTDOWN);
+        if let Some(x2) = to {
+            glide(start, at(x2), 15);
+        }
+        std::thread::sleep(Duration::from_millis(60));
+        mouse(MOUSEEVENTF_LEFTUP);
+        std::thread::sleep(Duration::from_millis(80));
+        let _ = SetCursorPos(original.0, original.1);
+    }
+    0
+}
