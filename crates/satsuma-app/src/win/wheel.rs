@@ -145,6 +145,21 @@ fn white(a: f32) -> Rgba {
     Rgba(1.0, 1.0, 1.0, a)
 }
 
+/// Orange glass: the accent, see-through, so the blur still shows through the pill.
+const GLASS_ORANGE: Rgba = Rgba(1.0, 0.50, 0.14, 0.66);
+/// The lit rim's warm white, and the hub's size text on glass.
+const GLASS_ORANGE_LIGHT: Rgba = Rgba(1.0, 0.80, 0.62, 1.0);
+
+/// `top` composited over `bottom` (straight alpha).
+fn over(top: Rgba, bottom: Rgba) -> Rgba {
+    let a = top.3 + bottom.3 * (1.0 - top.3);
+    if a <= 0.0 {
+        return Rgba(0.0, 0.0, 0.0, 0.0);
+    }
+    let mix = |t: f32, b: f32| (t * top.3 + b * bottom.3 * (1.0 - top.3)) / a;
+    Rgba(mix(top.0, bottom.0), mix(top.1, bottom.1), mix(top.2, bottom.2), a)
+}
+
 /// The vertical extent (y down) of a sector drawn around `c`.
 fn sector_rows(s: Sector, c: f32) -> (f32, f32) {
     let (mut top, mut bottom) = (f32::MAX, f32::MIN);
@@ -213,12 +228,13 @@ pub fn paint(p: &Painter, m: &WheelModel, pal: &Palette, behind: Option<&Behind>
     // Only the box around the liquid is shaded, which keeps every frame cheap.
     if let Some(area) = bounds(&pieces, c) {
         if pal.glass {
-            // The lit glass pill: white body and glare over the pill's height, a bright rim.
+            // The lit glass pill: an orange glass body under the white glare, a warm lit rim.
             let (top, bottom) = pieces.iter().map(|s| sector_rows(*s, c)).fold((f32::MAX, f32::MIN), |a, b| (a.0.min(b.0), a.1.max(b.1)));
             let span = (bottom - top).max(1.0);
             p.sdf_fill_lit(area, scale, &|y| {
                 let v = ((y - top) / span).clamp(0.0, 1.0);
-                (white(0.10 + nama_glare(true, v)), white(nama_rim(true, v)))
+                let rim = nama_rim(true, v);
+                (over(white(nama_glare(true, v) * 0.8), GLASS_ORANGE), over(white(rim * 0.55), GLASS_ORANGE_LIGHT.alpha(rim)))
             }, &liquid);
         } else {
             p.sdf_fill(area, scale, ACCENT, white(0.0), &liquid);
@@ -246,7 +262,7 @@ pub fn paint(p: &Painter, m: &WheelModel, pal: &Palette, behind: Option<&Behind>
     }
 
     let selected = m.selected.and_then(|i| m.items.get(i));
-    let accent = if pal.glass { pal.label } else { ACCENT };
+    let accent = if pal.glass { GLASS_ORANGE_LIGHT } else { ACCENT };
     if selected.is_some() || !m.hub.is_empty() {
         let r = (g.inner - 6.0) as f32;
         if pal.glass {
