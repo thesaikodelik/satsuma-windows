@@ -19,7 +19,7 @@
 </p>
 
 <p align="center">
-  <img src="docs/media/demo.gif" width="100%" alt="کشیدن Sunset.jpg از File Explorer و زدن Shift، چرخ تبدیل را زیر نشانگر باز می‌کند؛ رها کردن روی PNG، فایل Sunset.png را کنار اصلی می‌سازد.">
+  <img src="docs/media/demo.gif" width="100%" alt="کشیدن Sunset.jpg از File Explorer و زدن Shift، چرخ تبدیل را زیر نشانگر باز می‌کند؛ با رها کردن روی PNG حلقه‌ای از نور دور چرخ پر می‌شود، تیک می‌خورد و Sunset.png کنار عکس ساخته می‌شود.">
   <br>
   <sub><a href="docs/media/demo.mp4">تماشا به‌صورت ویدیو (MP4)</a></sub>
 </p>

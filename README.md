@@ -19,7 +19,7 @@
 </p>
 
 <p align="center">
-  <img src="docs/media/demo.gif" width="100%" alt="Dragging Sunset.jpg out of File Explorer and tapping Shift opens the Convert wheel under the pointer. The orange highlight flows from petal to petal and the hub shows each result's size; Ctrl and Alt switch to the Tools and Actions wheels. Dropping on PNG converts the photo and Sunset.png appears next to it.">
+  <img src="docs/media/demo.gif" width="100%" alt="Dragging Sunset.jpg out of File Explorer and tapping Shift opens the Convert wheel under the pointer. The orange highlight flows from petal to petal and the hub shows each result's size; Ctrl and Alt switch to the Tools and Actions wheels. Dropping on PNG fills a ring of light around the wheel, a tick shows, and Sunset.png appears next to the photo.">
   <br>
   <sub><a href="docs/media/demo.mp4">Watch it as a video (MP4)</a></sub>
 </p>
