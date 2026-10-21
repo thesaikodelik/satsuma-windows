@@ -49,6 +49,7 @@ mod annotate;
 mod bleep;
 mod pages;
 mod redact;
+mod redactvideo;
 mod theme;
 mod timeline;
 mod update;

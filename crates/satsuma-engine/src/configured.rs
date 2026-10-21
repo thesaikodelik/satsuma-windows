@@ -49,6 +49,9 @@ pub(crate) fn execute(ctx: &Context, job: &Job, tool: Tool, options: &ToolOption
             progress(0.7);
             imaging::write(&marked, out, Format::Png)
         }
+        (Tool::RedactVideo, ToolOptions::RedactVideo { boxes, style, from, to }) => {
+            media::redact_video(env, input, fmt, out, boxes, *style, *from, *to, cancel, progress)
+        }
         (Tool::RedactImage, ToolOptions::Redact { boxes, style }) => {
             if boxes.is_empty() {
                 return Err(Error::msg("Mark at least one area to hide."));

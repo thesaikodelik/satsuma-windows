@@ -806,6 +806,67 @@ pub fn crop_video(env: &Env, input: &Path, in_fmt: Format, out: &Path, rect: (f6
         .run(out, cancel, progress)
 }
 
+/// Hides boxes — (x, y, width, height) as fractions — by blurring, pixelating or filling
+/// them, through the whole clip or from `from` to `to` seconds.
+#[allow(clippy::too_many_arguments)]
+pub fn redact_video(
+    env: &Env,
+    input: &Path,
+    in_fmt: Format,
+    out: &Path,
+    boxes: &[[f64; 4]],
+    style: crate::plan::RedactStyle,
+    from: f64,
+    to: Option<f64>,
+    cancel: &Cancel,
+    progress: &mut dyn FnMut(f64),
+) -> Result<()> {
+    use crate::plan::RedactStyle;
+    if boxes.is_empty() {
+        return Err(Error::msg("Mark at least one area to hide."));
+    }
+    let p = probe(env, input)?;
+    let (vw, vh) = p.video.ok_or_else(|| Error::msg("This file has no picture to redact."))?;
+    let when = match to {
+        Some(t) => format!(":enable='between(t,{from:.3},{t:.3})'"),
+        None if from > 0.0 => format!(":enable='gte(t,{from:.3})'"),
+        None => String::new(),
+    };
+    let block = (vw.max(vh) / 70).max(6);
+    let even = |v: f64| ((v.round() as i64).max(0) / 2 * 2) as u32;
+    let mut graph = String::from("[0:v:0]null[v0]");
+    let mut n = 0;
+    for b in boxes {
+        let w = even(b[2].clamp(0.0, 1.0) * vw as f64).clamp(4, vw / 2 * 2);
+        let h = even(b[3].clamp(0.0, 1.0) * vh as f64).clamp(4, vh / 2 * 2);
+        let x = even(b[0].clamp(0.0, 1.0) * vw as f64).min(vw - w);
+        let y = even(b[1].clamp(0.0, 1.0) * vh as f64).min(vh - h);
+        let (cur, next) = (format!("v{n}"), format!("v{}", n + 1));
+        match style {
+            RedactStyle::Solid => graph.push_str(&format!(";[{cur}]drawbox=x={x}:y={y}:w={w}:h={h}:color=black:t=fill{when}[{next}]")),
+            _ => {
+                let hide = if style == RedactStyle::Blur {
+                    format!("gblur=sigma={}:steps=3", block * 2)
+                } else {
+                    format!("scale={}:{}:flags=area,scale={w}:{h}:flags=neighbor", w.div_ceil(block).max(1), h.div_ceil(block).max(1))
+                };
+                graph.push_str(&format!(
+                    ";[{cur}]split=2[base{n}][part{n}];[part{n}]crop={w}:{h}:{x}:{y},{hide}[hid{n}];[base{n}][hid{n}]overlay={x}:{y}{when}[{next}]"
+                ));
+            }
+        }
+        n += 1;
+    }
+    Ff::new(env)
+        .input(input)
+        .arg("-filter_complex")
+        .arg(graph)
+        .args(["-map", &format!("[v{n}]"), "-map", "0:a:0?", "-map_metadata", "0"])
+        .args(video_codec_args(env, in_fmt)?)
+        .duration(p.duration)
+        .run(out, cancel, progress)
+}
+
 /// Silence the given ranges (seconds), or cover them with a beep.
 #[allow(clippy::too_many_arguments)]
 pub fn bleep(env: &Env, input: &Path, in_fmt: Format, out: &Path, ranges: &[(f64, f64)], tone: bool, cancel: &Cancel, progress: &mut dyn FnMut(f64)) -> Result<()> {

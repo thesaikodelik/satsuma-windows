@@ -273,3 +273,33 @@ fn finds_words_and_runs_face_detection() {
     assert!(satsuma_engine::ocr::face_boxes(&photo).unwrap().is_empty());
     assert!(satsuma_engine::ocr::word_boxes(&photo).unwrap().is_empty());
 }
+
+#[test]
+fn redact_video_boxes() {
+    use satsuma_engine::plan::RedactStyle;
+    if !have_ffmpeg() {
+        return;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let v = video(dir.path(), 3);
+    let frame_at = |p: &Path, t: f64| {
+        let png = dir.path().join(format!("f{}.png", (t * 10.0) as u32));
+        media::frame_to(env(), p, t, &png, &Cancel::new()).unwrap();
+        image::open(&png).unwrap().to_rgba8()
+    };
+    for style in [RedactStyle::Blur, RedactStyle::Pixelate, RedactStyle::Solid] {
+        let out = apply(
+            &[v.clone()],
+            Tool::RedactVideo,
+            ToolOptions::RedactVideo { boxes: vec![[0.25, 0.25, 0.5, 0.5]], style, from: 1.0, to: Some(2.0) },
+        );
+        assert!((duration(&out) - 3.0).abs() < 0.3);
+        let (before, during) = (frame_at(&out, 0.5), frame_at(&out, 1.5));
+        assert_eq!(during.dimensions(), (320, 240));
+        if style == RedactStyle::Solid {
+            assert!(during.get_pixel(160, 120).0[..3].iter().all(|c| *c < 30), "{style:?}");
+            assert!(before.get_pixel(160, 120).0[..3].iter().any(|c| *c > 40), "{style:?} hid too early");
+        }
+        std::fs::remove_file(&out).unwrap();
+    }
+}
