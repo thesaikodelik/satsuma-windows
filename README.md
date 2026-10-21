@@ -269,6 +269,22 @@ is on the **[latest release](https://github.com/thesaikodelik/satsuma-windows/re
 Your files never leave your PC. The only time Satsuma goes online is to ask GitHub whether a newer
 version exists. No accounts, no ads, no tracking.
 
+## ✍️ Code signing policy
+
+Free code signing provided by [SignPath.io](https://about.signpath.io), certificate by
+[SignPath Foundation](https://signpath.org). *Being set up: until it's in place, releases are
+unsigned.*
+
+- **Committers and reviewers:** [thesaikodelik](https://github.com/thesaikodelik)
+- **Approvers:** [thesaikodelik](https://github.com/thesaikodelik)
+
+Every signed file is built from this repository by [GitHub Actions](.github/workflows/windows.yml),
+and each release is approved by hand before it's signed.
+
+**Privacy:** Satsuma sends no information to other networked systems unless you ask it to, with one
+exception: it asks GitHub whether a newer version of Satsuma exists, and downloads it when there is
+(see [Private by design](#-private-by-design)).
+
 <details>
 <summary><b>🛠 Build from source, command line and how it works</b></summary>
 
