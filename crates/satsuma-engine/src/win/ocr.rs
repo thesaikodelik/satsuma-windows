@@ -11,7 +11,7 @@ use windows::Media::FaceAnalysis::FaceDetector;
 use windows::Media::Ocr::OcrEngine;
 use windows::Storage::{FileAccessMode, StorageFile};
 
-pub use crate::ocr_layout::{paragraphs, Line};
+pub use crate::ocr_layout::{paragraphs, table_rows, Line, Word};
 
 fn engine() -> Result<OcrEngine> {
     if let Ok(e) = OcrEngine::TryCreateFromUserProfileLanguages() {
@@ -65,6 +65,23 @@ pub fn word_boxes(path: &Path) -> Result<Vec<[f64; 4]>> {
         }
     }
     Ok(boxes)
+}
+
+/// Every recognised word with its box, in pixels of the image as given.
+pub fn words(path: &Path) -> Result<Vec<Word>> {
+    let (result, w, _) = ocr_result(path)?;
+    // The engine may have seen a smaller copy; scale boxes back to the original.
+    let k = raster::load(path).map(|img| img.width() as f64 / w).unwrap_or(1.0);
+    let fail = |e| winerr("Text recognition failed", e);
+    let mut out = Vec::new();
+    for line in result.Lines().map_err(fail)? {
+        for word in line.Words().map_err(fail)? {
+            let r = word.BoundingRect().map_err(fail)?;
+            let text = word.Text().map_err(fail)?.to_string();
+            out.push(Word { text, x: r.X as f64 * k, y: r.Y as f64 * k, w: r.Width as f64 * k, h: r.Height as f64 * k });
+        }
+    }
+    Ok(out)
 }
 
 /// A box around each face found: (x, y, width, height) as fractions, top-left origin.

@@ -267,6 +267,28 @@ pub fn convert(env: &Env, input: &Path, fmt: Format, out: &Path, target: Format,
             return Ok(out.to_path_buf());
         }
         (Pdf, Png | Jpg) => return render_pdf_images(input, target, 300.0, out, progress),
+        (Pdf, Pptx) => {
+            pdf_to_slides(input, out, tmp, progress)?;
+            return Ok(out.to_path_buf());
+        }
+        (Pdf, Xlsx) => {
+            pdf_to_sheet(input, out, tmp, progress)?;
+            return Ok(out.to_path_buf());
+        }
+        (Ppt | Pptx, Pdf | Png | Jpg) => {
+            #[cfg(windows)]
+            {
+                let pdf_path = if target == Pdf { out.to_path_buf() } else { crate::image::unique_in(tmp, "slides.pdf") };
+                crate::win::office::slides_to_pdf(input, &pdf_path, tmp, cancel)?;
+                if target == Pdf {
+                    return Ok(out.to_path_buf());
+                }
+                progress(0.5);
+                return render_pdf_images(&pdf_path, target, 200.0, out, &mut |f| progress(0.5 + f * 0.5));
+            }
+            #[cfg(not(windows))]
+            return Err(Error::msg("Slides can't be converted here."));
+        }
         _ => {}
     }
 
@@ -297,6 +319,76 @@ pub fn convert(env: &Env, input: &Path, fmt: Format, out: &Path, target: Format,
     }
     progress(1.0);
     Ok(out.to_path_buf())
+}
+
+/// PDF → PowerPoint: each page becomes a slide holding a picture of it.
+fn pdf_to_slides(input: &Path, out: &Path, tmp: &Path, progress: &mut dyn FnMut(f64)) -> Result<()> {
+    let dir = tmp.join("slide-pages");
+    std::fs::create_dir_all(&dir)?;
+    let pages = pdf::render_pages(input, Jpg, 170.0, &|i, _| dir.join(format!("{i:05}.jpg")), &mut |f| progress(f * 0.8))?;
+    let mut slides = Vec::new();
+    for page in pages {
+        let (w, h) = ::image::image_dimensions(&page).map_err(|e| Error::msg(format!("Could not read a page: {e}")))?;
+        slides.push((std::fs::read(&page)?, w, h));
+    }
+    crate::pptx::write_pictures(out, &slides)?;
+    progress(1.0);
+    Ok(())
+}
+
+/// PDF → Excel: the words on each page, found by text recognition, laid out as rows and
+/// columns by where they sit. Pages follow one another with a blank row between.
+#[cfg(windows)]
+fn pdf_to_sheet(input: &Path, out: &Path, tmp: &Path, progress: &mut dyn FnMut(f64)) -> Result<()> {
+    use crate::sheet::{Cell, Sheet};
+    let dir = tmp.join("sheet-pages");
+    std::fs::create_dir_all(&dir)?;
+    let pages = pdf::render_pages(input, Png, 220.0, &|i, _| dir.join(format!("{i:05}.png")), &mut |f| progress(f * 0.4))?;
+    let n = pages.len().max(1);
+    let mut rows: Vec<Vec<Cell>> = Vec::new();
+    for (i, page) in pages.iter().enumerate() {
+        // Text recognition misses very large type; big pages are brought down to a usual scan size.
+        if let Ok(img) = ::image::open(page) {
+            if img.width().max(img.height()) > 2600 {
+                let _ = img.resize(2600, 2600, ::image::imageops::FilterType::Triangle).save(page);
+            }
+        }
+        let table = crate::ocr::table_rows(crate::ocr::words(page)?);
+        if !table.is_empty() && !rows.is_empty() {
+            rows.push(Vec::new());
+        }
+        rows.extend(table.into_iter().map(|r| r.iter().map(|t| Cell::from_text(t)).collect()));
+        progress(0.4 + 0.55 * (i + 1) as f64 / n as f64);
+    }
+    if rows.is_empty() {
+        // Nothing recognised (unusual type, say): the PDF's own text, a row per line, with
+        // wide gaps or tabs between cells.
+        let text = pdf::text(input).unwrap_or_default();
+        rows = text
+            .lines()
+            .map(|line| {
+                line.split('\t')
+                    .flat_map(|part| part.split("   "))
+                    .map(str::trim)
+                    .filter(|c| !c.is_empty())
+                    .map(Cell::from_text)
+                    .collect::<Vec<_>>()
+            })
+            .collect();
+        while rows.last().is_some_and(|r| r.is_empty()) {
+            rows.pop();
+        }
+    }
+    if rows.iter().all(|r| r.is_empty()) {
+        return Err(Error::msg("No text was found in this PDF."));
+    }
+    let name = stem_of(&input.file_name().unwrap_or_default().to_string_lossy()).chars().take(31).collect();
+    crate::sheet::write(&Sheet { name, rows }, Xlsx, out, tmp)
+}
+
+#[cfg(not(windows))]
+fn pdf_to_sheet(_: &Path, _: &Path, _: &Path, _: &mut dyn FnMut(f64)) -> Result<()> {
+    Err(Error::msg("PDF to Excel isn't available here."))
 }
 
 /// Renders PDF pages; one page writes `out`, several write a folder named like `out`'s stem.

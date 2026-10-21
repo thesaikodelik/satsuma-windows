@@ -27,6 +27,7 @@ pub mod pdf;
 #[cfg_attr(windows, path = "win/photo.rs")]
 pub mod photo;
 pub mod plan;
+pub mod pptx;
 pub mod probe;
 pub mod process;
 pub mod run;

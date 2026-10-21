@@ -143,9 +143,11 @@ pub fn merge(inputs: &[PathBuf], out: &Path) -> Result<()> {
     }
     let count = kids.len() as u32;
     merged.objects.insert(pages_id, Object::Dictionary(dictionary! { "Type" => "Pages", "Kids" => kids, "Count" => count }));
+    // The catalog takes a fresh id: max_id must cover the copied objects first, or the
+    // catalog would overwrite one of them (an image, say).
+    merged.max_id = merged.objects.keys().map(|k| k.0).max().unwrap_or(0);
     let catalog_id = merged.add_object(dictionary! { "Type" => "Catalog", "Pages" => pages_id });
     merged.trailer.set("Root", catalog_id);
-    merged.max_id = merged.objects.keys().map(|k| k.0).max().unwrap_or(0);
     merged.renumber_objects();
     merged.compress();
     save(&mut merged, out)
@@ -592,6 +594,27 @@ pub fn image_pdf(img: &RgbaImage, out: &Path) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn image_of(doc: &Document) -> Option<(i64, i64)> {
+        let page = *doc.get_pages().values().next()?;
+        let res = doc.get_object(page).ok()?.as_dict().ok()?.get(b"Resources").ok()?.as_dict().ok()?;
+        let id = res.get(b"XObject").ok()?.as_dict().ok()?.get(b"Im0").ok()?.as_reference().ok()?;
+        let d = &doc.get_object(id).ok()?.as_stream().ok()?.dict;
+        (d.get(b"Subtype").ok()?.as_name().ok()? == b"Image").then(|| (d.get(b"Width").unwrap().as_i64().unwrap(), d.get(b"Height").unwrap().as_i64().unwrap()))
+    }
+
+    #[test]
+    fn large_flat_images_survive_saving_and_merging() {
+        let dir = tempfile::tempdir().unwrap();
+        // Big and flat (not photographic): stored as a deflated stream, not JPEG.
+        let img = RgbaImage::from_fn(1275, 1650, |x, y| if (y / 90) % 2 == 0 && x % 300 < 200 { image::Rgba([0, 0, 0, 255]) } else { image::Rgba([255, 255, 255, 255]) });
+        let one = dir.path().join("one.pdf");
+        image_pdf(&img, &one).unwrap();
+        assert_eq!(image_of(&open(&one).unwrap()), Some((1275, 1650)), "single page");
+        let merged = dir.path().join("merged.pdf");
+        merge(&[one.clone(), one], &merged).unwrap();
+        assert_eq!(image_of(&open(&merged).unwrap()), Some((1275, 1650)), "merged");
+    }
 
     fn sample_pdf(dir: &Path, name: &str, color: [u8; 4]) -> PathBuf {
         let p = dir.join(name);

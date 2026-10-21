@@ -6,11 +6,17 @@ use satsuma_core::Format::{self, *};
 use satsuma_core::{Category, Tool, WheelItem};
 
 pub fn conversion_available(env: &Env, from: Format, to: Format) -> bool {
-    if matches!(from, Pages | Ppt | Pptx) || matches!(to, Pages | Pptx) {
+    if from == Pages || to == Pages {
         return false;
     }
+    if matches!(from, Ppt | Pptx) {
+        return can_convert_slides();
+    }
+    if to == Pptx {
+        return from == Pdf;
+    }
     if from == Pdf && to == Xlsx {
-        return false;
+        return cfg!(windows);
     }
     match from.category() {
         Category::Image => {
@@ -34,6 +40,16 @@ pub fn conversion_available(env: &Env, from: Format, to: Format) -> bool {
         Category::Document | Category::Spreadsheet => !matches!(to, Pdf | Png | Jpg) || can_print(env),
         Category::Subtitle | Category::Archive => true,
     }
+}
+
+#[cfg(windows)]
+fn can_convert_slides() -> bool {
+    crate::win::office::can_convert_slides()
+}
+
+#[cfg(not(windows))]
+fn can_convert_slides() -> bool {
+    false
 }
 
 /// Image formats this machine can encode (on Windows, HEIC needs the Store's HEVC extension
@@ -146,7 +162,8 @@ mod tests {
         assert!(conversion_available(&env, Docx, Pdf));
         assert!(conversion_available(&env, Csv, Xlsx));
         assert!(!conversion_available(&env, Docx, Pages));
-        assert!(!conversion_available(&env, Pdf, Xlsx));
+        assert!(conversion_available(&env, Pdf, Xlsx));
+        assert!(conversion_available(&env, Pdf, Pptx));
         assert!(tool_available(&env, Tool::MergePdf, Pdf));
         assert!(!tool_available(&env, Tool::NormalizeAudio, Mp3));
         assert!(tool_available(&env, Tool::AnnotateImage, Jpg));

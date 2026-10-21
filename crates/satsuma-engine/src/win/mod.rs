@@ -4,6 +4,7 @@
 
 pub mod browser;
 pub mod docx_read;
+pub mod office;
 pub mod raster;
 pub mod rtf;
 pub mod sips;

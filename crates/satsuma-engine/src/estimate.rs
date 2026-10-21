@@ -111,6 +111,15 @@ fn sampled(ctx: &Context, job: &Job, total: f64, dir: &Path) -> Result<Estimate>
 
 /// The size `op` on `files` will produce.
 pub fn estimate(ctx: &Context, files: &[PathBuf], op: Operation) -> Result<Estimate> {
+    // Slides go through PowerPoint and PDF tables through text recognition: too slow (and,
+    // for PowerPoint, too intrusive) to run just to show a size.
+    if let Operation::Convert(to) = op {
+        let slides = files.iter().any(|f| matches!(Format::from_path(f), Some(Format::Ppt | Format::Pptx)));
+        let tables = to == Format::Xlsx && files.iter().any(|f| Format::from_path(f) == Some(Format::Pdf));
+        if slides || tables {
+            return Err(Error::msg("Not previewed."));
+        }
+    }
     let p = plan(ctx.env, files, op)?;
     if p.jobs.is_empty() {
         return Err(Error::msg(p.skipped.first().map(|s| s.1.clone()).unwrap_or_else(|| "Nothing to do.".into())));
