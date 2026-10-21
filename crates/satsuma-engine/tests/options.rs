@@ -192,3 +192,33 @@ fn trim_crop_and_bleep() {
     assert_eq!(peaks.len(), 100);
     assert!(peaks.iter().all(|p| (0.0..=1.0).contains(p)));
 }
+
+#[test]
+fn organize_pdf_pages() {
+    let dir = tempfile::tempdir().unwrap();
+    // Three pages of different widths, so the order can be read back.
+    let mut parts = Vec::new();
+    for (i, w) in [200u32, 300, 400].iter().enumerate() {
+        let png = dir.path().join(format!("p{i}.png"));
+        image::RgbaImage::from_pixel(*w, 100, image::Rgba([200, 100, 50, 255])).save(&png).unwrap();
+        parts.push(png);
+    }
+    let pdf_in = dir.path().join("three.pdf");
+    satsuma_engine::image::images_to_pdf(env(), &parts, &pdf_in, dir.path(), &Cancel::new(), &mut |_| {}).unwrap();
+    let out = dir.path().join("organized.pdf");
+    pdf::organize(&pdf_in, &out, &[(2, 0), (0, 90), (0, 0)]).unwrap();
+    let doc = lopdf::Document::load(&out).unwrap();
+    let pages: Vec<lopdf::ObjectId> = doc.get_pages().values().copied().collect();
+    assert_eq!(pages.len(), 3);
+    let width = |id| {
+        let d = doc.get_object(id).unwrap().as_dict().unwrap();
+        let mb = d.get(b"MediaBox").unwrap().as_array().unwrap();
+        mb[2].as_float().unwrap() - mb[0].as_float().unwrap()
+    };
+    let rot = |id| doc.get_object(id).unwrap().as_dict().unwrap().get(b"Rotate").and_then(|r| r.as_i64()).unwrap_or(0);
+    assert!(width(pages[0]) > width(pages[1]));
+    assert_eq!(width(pages[1]), width(pages[2]));
+    assert_eq!(rot(pages[1]), 90);
+    assert_eq!(rot(pages[2]), 0);
+    assert_ne!(pages[1], pages[2]);
+}

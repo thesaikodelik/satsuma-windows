@@ -92,6 +92,10 @@ pub trait Form {
     fn canvas_up(&mut self, _x: f32, _y: f32, _r: R) -> bool {
         false
     }
+    /// The mouse wheel over the canvas (positive = towards the user); return true to redraw.
+    fn canvas_wheel(&mut self, _delta: f32) -> bool {
+        false
+    }
     /// Keys while no text field has focus; return true when handled.
     fn key(&mut self, _vk: VIRTUAL_KEY) -> bool {
         false
@@ -523,6 +527,14 @@ impl Handler for Messages {
                         self.resize_to_content(hwnd);
                         refresh(hwnd);
                     }
+                }
+                Some(LRESULT(0))
+            }
+            WM_MOUSEWHEEL => {
+                let delta = -(window::hiword(wparam.0 as isize) as f32) / 120.0;
+                let redraw = self.state.try_borrow_mut().map(|mut s| s.form.canvas_wheel(delta)).unwrap_or(false);
+                if redraw {
+                    refresh(hwnd);
                 }
                 Some(LRESULT(0))
             }

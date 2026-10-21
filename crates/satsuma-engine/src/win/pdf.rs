@@ -151,6 +151,51 @@ pub fn merge(inputs: &[PathBuf], out: &Path) -> Result<()> {
     save(&mut merged, out)
 }
 
+/// A new page order: each entry is a source page (0-based) and extra clockwise rotation.
+/// Pages can repeat (each repeat is its own copy) or be left out.
+pub fn organize(input: &Path, out: &Path, pages: &[(usize, u16)]) -> Result<()> {
+    if pages.is_empty() {
+        return Err(Error::msg("Keep at least one page."));
+    }
+    let mut doc = open(input)?;
+    pin_inherited(&mut doc);
+    let source: Vec<ObjectId> = doc.get_pages().values().copied().collect();
+    let bad = |_: lopdf::Error| Error::msg("This PDF's pages can't be read.");
+    let root = doc.catalog().and_then(|c| c.get(b"Pages")).and_then(|p| p.as_reference()).map_err(bad)?;
+    // Copies come from the pages as they were, not as already changed by an earlier entry.
+    let originals: Vec<lopdf::Dictionary> = source.iter().map(|id| doc.get_object(*id).and_then(|o| o.as_dict()).cloned().map_err(bad)).collect::<Result<_>>()?;
+    let mut used = std::collections::HashSet::new();
+    let mut kids = Vec::new();
+    for &(index, extra) in pages {
+        let id = *source.get(index).ok_or_else(|| Error::msg("A page is out of range."))?;
+        let mut page = originals[index].clone();
+        let current = page.get(b"Rotate").and_then(|r| r.as_i64()).unwrap_or(0);
+        let rotate = ((current + extra as i64) % 360 + 360) % 360;
+        if rotate == 0 {
+            page.remove(b"Rotate");
+        } else {
+            page.set("Rotate", rotate);
+        }
+        page.set("Parent", root);
+        let target = if used.insert(id) {
+            doc.objects.insert(id, Object::Dictionary(page));
+            id
+        } else {
+            doc.add_object(Object::Dictionary(page))
+        };
+        kids.push(Object::Reference(target));
+    }
+    let count = kids.len() as i64;
+    if let Ok(Object::Dictionary(node)) = doc.get_object_mut(root) {
+        node.set("Kids", kids);
+        node.set("Count", count);
+    }
+    doc.prune_objects();
+    doc.renumber_objects();
+    doc.compress();
+    save(&mut doc, out)
+}
+
 /// One PDF per page in `out_dir`, named `"{stem} 01.pdf"`, `"{stem} 02.pdf"` …
 pub fn split(input: &Path, out_dir: &Path, stem: &str, progress: &mut dyn FnMut(f64)) -> Result<Vec<PathBuf>> {
     let doc = open(input)?;

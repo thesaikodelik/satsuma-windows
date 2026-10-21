@@ -41,6 +41,7 @@ pub(crate) fn execute(ctx: &Context, job: &Job, tool: Tool, options: &ToolOption
         (Tool::TrimAudio | Tool::TrimVideo, ToolOptions::Trim { start, end }) => media::trim(env, input, fmt, out, *start, *end, cancel, progress),
         (Tool::CropVideo, ToolOptions::CropVideo { x, y, w, h }) => media::crop_video(env, input, fmt, out, (*x, *y, *w, *h), cancel, progress),
         (Tool::RedactAudio, ToolOptions::Bleep { ranges, tone }) => media::bleep(env, input, fmt, out, ranges, *tone, cancel, progress),
+        (Tool::OrganizePdf, ToolOptions::Pages { pages }) => pdf::organize(input, out, pages),
         _ => Err(Error::msg(format!("{} can't use these options.", tool.info().name))),
     }
 }
