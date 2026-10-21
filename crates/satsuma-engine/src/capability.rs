@@ -169,7 +169,8 @@ mod tests {
         assert!(tool_available(&env, Tool::AnnotateImage, Jpg));
         assert!(tool_available(&env, Tool::EditImage, Jpg));
         assert!(tool_available(&env, Tool::CropImage, Jpg));
-        assert!(tool_available(&env, Tool::FrameImage, Heic));
+        // HEIC needs the Store's HEIF/HEVC extensions, which build servers lack.
+        assert_eq!(tool_available(&env, Tool::FrameImage, Heic), can_write_image(Heic));
         assert!(!tool_available(&env, Tool::CropImage, Webp));
         assert!(conversion_available(&env, Jpg, Docx));
         assert!(tool_available(&env, Tool::RemoveMetadata, Jpg));
