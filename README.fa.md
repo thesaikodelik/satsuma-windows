@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/media/logo-banner.jpg" alt="ساتسوما: بکش، بزن، رها کن" width="100%">
+  <img src="docs/media/hero.jpg" alt="ساتسوما: فایل را بکش، یک کلید بزن و روی گلبرگ رها کن" width="100%">
 </p>
 
 <p align="center">

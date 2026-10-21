@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/media/logo-banner.jpg" alt="Satsuma: drag, tap, drop" width="100%">
+  <img src="docs/media/hero.jpg" alt="Satsuma: drag a file, tap a key, drop it on a petal. A glass wheel of formats opens under the pointer and the photo is saved as PNG." width="100%">
 </p>
 
 <p align="center">
