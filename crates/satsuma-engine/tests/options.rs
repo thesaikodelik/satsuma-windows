@@ -238,3 +238,38 @@ fn annotate_draws_over_the_photo() {
     let blue = img.pixels().filter(|p| p.0[2] > 200 && p.0[0] < 80).count();
     assert!(blue > 50, "the text was drawn: {blue}");
 }
+
+#[test]
+fn redact_hides_the_boxes() {
+    use satsuma_engine::plan::RedactStyle;
+    let dir = tempfile::tempdir().unwrap();
+    let photo = dir.path().join("card.png");
+    // Fine stripes: blurring or pixelating flattens them; solid paints them black.
+    let img = image::RgbImage::from_fn(300, 200, |x, _| if x % 4 < 2 { image::Rgb([255, 255, 255]) } else { image::Rgb([0, 0, 0]) });
+    img.save(&photo).unwrap();
+    let spread = |img: &image::RgbaImage, x0: u32, x1: u32| {
+        let v: Vec<u8> = (x0..x1).map(|x| img.get_pixel(x, 50).0[0]).collect();
+        *v.iter().max().unwrap() as i32 - *v.iter().min().unwrap() as i32
+    };
+    for style in [RedactStyle::Blur, RedactStyle::Pixelate, RedactStyle::Solid] {
+        let out = apply(&[photo.clone()], Tool::RedactImage, ToolOptions::Redact { boxes: vec![[0.1, 0.1, 0.4, 0.5]], style });
+        assert_eq!(out.extension().unwrap(), "png");
+        let got = image::open(&out).unwrap().to_rgba8();
+        assert!(spread(&got, 40, 140) < 120, "{style:?} left the stripes");
+        assert!(spread(&got, 200, 280) > 200, "{style:?} touched the rest");
+        if style == RedactStyle::Solid {
+            assert_eq!(got.get_pixel(60, 50).0[..3], [0, 0, 0]);
+        }
+    }
+}
+
+#[cfg(windows)]
+#[test]
+fn finds_words_and_runs_face_detection() {
+    let dir = tempfile::tempdir().unwrap();
+    let photo = dir.path().join("plain.png");
+    image::RgbImage::from_pixel(320, 240, image::Rgb([200, 210, 220])).save(&photo).unwrap();
+    // No faces in a plain picture, but the detector must run.
+    assert!(satsuma_engine::ocr::face_boxes(&photo).unwrap().is_empty());
+    assert!(satsuma_engine::ocr::word_boxes(&photo).unwrap().is_empty());
+}

@@ -49,6 +49,16 @@ pub(crate) fn execute(ctx: &Context, job: &Job, tool: Tool, options: &ToolOption
             progress(0.7);
             imaging::write(&marked, out, Format::Png)
         }
+        (Tool::RedactImage, ToolOptions::Redact { boxes, style }) => {
+            if boxes.is_empty() {
+                return Err(Error::msg("Mark at least one area to hide."));
+            }
+            let img = imaging::load(input)?;
+            progress(0.3);
+            let hidden = imaging::redact(&img, boxes, *style);
+            progress(0.7);
+            crate::run::save_image(env, &hidden, out, fmt, tmp, cancel)
+        }
         _ => Err(Error::msg(format!("{} can't use these options.", tool.info().name))),
     }
 }

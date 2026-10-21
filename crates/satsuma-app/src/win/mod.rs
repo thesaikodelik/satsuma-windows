@@ -48,6 +48,7 @@ mod cropvideo;
 mod annotate;
 mod bleep;
 mod pages;
+mod redact;
 mod theme;
 mod timeline;
 mod update;

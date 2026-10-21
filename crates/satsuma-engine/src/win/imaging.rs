@@ -250,6 +250,47 @@ pub fn overlay_svg(img: &RgbaImage, svg: &str) -> Result<Image> {
     Ok(Arc::new(out))
 }
 
+/// `img` with each box — (x, y, width, height) as fractions — blurred, pixelated or filled.
+pub fn redact(img: &RgbaImage, boxes: &[[f64; 4]], style: crate::plan::RedactStyle) -> Image {
+    use crate::plan::RedactStyle;
+    use image::imageops::{self, FilterType};
+    let (w, h) = img.dimensions();
+    let mut out = img.clone();
+    // Pixel blocks scale with the photo, so small and large photos look alike.
+    let block = (w.max(h) / 70).max(6);
+    for b in boxes {
+        let x0 = (b[0].clamp(0.0, 1.0) * w as f64).floor() as u32;
+        let y0 = (b[1].clamp(0.0, 1.0) * h as f64).floor() as u32;
+        let x1 = ((b[0] + b[2]).clamp(0.0, 1.0) * w as f64).ceil() as u32;
+        let y1 = ((b[1] + b[3]).clamp(0.0, 1.0) * h as f64).ceil() as u32;
+        if x1 <= x0 || y1 <= y0 {
+            continue;
+        }
+        let (bw, bh) = (x1 - x0, y1 - y0);
+        let patch = match style {
+            RedactStyle::Solid => RgbaImage::from_pixel(bw, bh, image::Rgba([0, 0, 0, 255])),
+            RedactStyle::Pixelate => {
+                let region = imageops::crop_imm(&out, x0, y0, bw, bh).to_image();
+                let small = imageops::resize(&region, bw.div_ceil(block).max(1), bh.div_ceil(block).max(1), FilterType::Triangle);
+                imageops::resize(&small, bw, bh, FilterType::Nearest)
+            }
+            RedactStyle::Blur => {
+                // Shrinking hard and growing back blurs beyond recovery, then a soft blur hides the blocks.
+                let region = imageops::crop_imm(&out, x0, y0, bw, bh).to_image();
+                let small = imageops::resize(&region, (bw / (block * 2)).max(2), (bh / (block * 2)).max(2), FilterType::Triangle);
+                let grown = imageops::resize(&small, bw, bh, FilterType::CatmullRom);
+                imageops::blur(&grown, block as f32 * 0.8)
+            }
+        };
+        let mut patch = patch;
+        for p in patch.pixels_mut() {
+            p.0[3] = 255;
+        }
+        imageops::replace(&mut out, &patch, x0 as i64, y0 as i64);
+    }
+    Arc::new(out)
+}
+
 /// Writes `img` in `format` (not WebP; see `run.rs`).
 pub fn write(img: &RgbaImage, path: &Path, format: Format) -> Result<()> {
     uti(format).ok_or_else(|| Error::msg(format!("Cannot save {} images here.", format.label())))?;

@@ -268,7 +268,7 @@ fn execute(ctx: &Context, job: &Job, out: &Path, tmp: &Path, progress: &mut dyn 
 }
 
 /// Writes an edited image in `format`; WebP goes through PNG and ffmpeg.
-fn save_image(env: &Env, img: &imaging::Image, out: &Path, format: Format, tmp: &Path, cancel: &Cancel) -> Result<()> {
+pub(crate) fn save_image(env: &Env, img: &imaging::Image, out: &Path, format: Format, tmp: &Path, cancel: &Cancel) -> Result<()> {
     if format == Format::Webp {
         let png = image::unique_in(tmp, "edited.png");
         imaging::write(img, &png, Format::Png)?;
