@@ -33,6 +33,8 @@ mod editor;
 mod estimates;
 mod events;
 mod float;
+mod form;
+mod forms;
 mod gfx;
 mod hud;
 mod icon;
@@ -96,6 +98,15 @@ pub fn render_icon(size: usize, out: &Path) -> Result<(), String> {
 pub fn render_editor(kind: &str, files: Vec<PathBuf>, sets: &[(String, f64)], segment: Option<isize>, out: &Path) -> Result<(), String> {
     let dark = std::env::var_os("SATSUMA_DARK").is_some();
     editor::render_png(kind, files, sets, segment, dark, out)
+}
+
+/// A tool's options window as a PNG (`satsuma render-form`).
+pub fn render_form(tool: &str, files: Vec<PathBuf>, sets: &[(u32, f64)], out: &Path) -> Result<(), String> {
+    let tool = satsuma_core::Tool::from_id(tool).ok_or("Unknown tool")?;
+    let form = forms::form_for(tool, &files).ok_or("This tool has no options window for these files.")?;
+    let dark = std::env::var_os("SATSUMA_DARK").is_some();
+    let pal = theme::Palette::for_appearance(render_theme(), dark);
+    form::render_png(form, sets, &pal, out)
 }
 
 /// `SATSUMA_THEME=glass|smoke|solid` picks the look of offscreen renders (default solid).

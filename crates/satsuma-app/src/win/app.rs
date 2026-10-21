@@ -166,6 +166,8 @@ struct Controller {
     wheel_hide_at: Option<Instant>,
     floats: Vec<FloatWindow>,
     editors: Vec<EditorWindow>,
+    /// Open tool options windows.
+    forms: Vec<super::form::FormWindow>,
     /// Output-size previews for the open wheel.
     estimates: Option<super::estimates::Session>,
     job: Option<RunningJob>,
@@ -460,7 +462,7 @@ impl Controller {
             UiEvent::WheelDrop { item, files, at } => {
                 self.wheel_hide_at = None;
                 self.drag = Drag::Rejected;
-                let ring = self.ring_for(item);
+                let ring = self.ring_for(item, &files);
                 if ring {
                     self.wheel.begin_work();
                 } else {
@@ -471,7 +473,7 @@ impl Controller {
             UiEvent::WheelPick { item } => {
                 let at = self.wheel.anchor();
                 if let Some(files) = self.keyboard_files.take() {
-                    let ring = self.ring_for(item);
+                    let ring = self.ring_for(item, &files);
                     if ring {
                         self.wheel.begin_work();
                     } else {
@@ -509,6 +511,7 @@ impl Controller {
             UiEvent::WindowClosed { window } => {
                 self.floats.retain(|f| f.id() != window);
                 self.editors.retain(|e| e.id() != window);
+                self.forms.retain(|f| f.id() != window);
             }
             UiEvent::EditorApply { op, files, at } => self.enqueue(PendingJob { op, files, at, on_wheel: false }),
             UiEvent::RestartToUpdate => self.command(CMD_UPDATE),
@@ -536,8 +539,12 @@ impl Controller {
     }
 
     /// A job this petal starts shows its progress around the wheel, when nothing else runs.
-    fn ring_for(&self, item: WheelItem) -> bool {
-        let job = matches!(item, WheelItem::Convert(_)) || matches!(item, WheelItem::Tool(t) if !t.has_editor());
+    fn ring_for(&self, item: WheelItem, files: &[PathBuf]) -> bool {
+        let job = match item {
+            WheelItem::Convert(_) => true,
+            WheelItem::Tool(t) => !t.has_editor() && !super::forms::asks(t, files),
+            WheelItem::Action(_) => false,
+        };
         job && self.job.is_none() && self.queue.is_empty()
     }
 
@@ -561,6 +568,10 @@ impl Controller {
     fn dispatch(&mut self, item: WheelItem, files: Vec<PathBuf>, at: Point, on_wheel: bool) {
         match item {
             WheelItem::Convert(f) => self.enqueue(PendingJob { op: Operation::Convert(f), files, at, on_wheel }),
+            WheelItem::Tool(t) if super::forms::asks(t, &files) => match super::forms::form_for(t, &files) {
+                Some(form) => self.forms.push(super::form::FormWindow::open(form)),
+                None => self.deferred.push(Deferred::Alert(format!("Couldn't open {}", t.info().name), "Satsuma couldn't read this file.".into())),
+            },
             WheelItem::Tool(t) if t.has_editor() => self.open_editor(t, files),
             WheelItem::Tool(t) => self.enqueue(PendingJob { op: Operation::Tool(t), files, at, on_wheel }),
             WheelItem::Action(action) => self.perform_action(action, files, at),
@@ -785,6 +796,7 @@ impl Controller {
             && self.job.is_none()
             && self.queue.is_empty()
             && self.editors.is_empty()
+            && self.forms.is_empty()
             && self.floats.is_empty()
             && self.hud_hide_at.is_none()
             && unsafe { FindWindowW(None, &HSTRING::from(super::settings_window::TITLE)) }.map_or(true, |h| h.is_invalid())
@@ -1052,6 +1064,7 @@ pub fn run() {
         hud_hide_at: None,
         wheel_hide_at: None,
         floats: Vec::new(),
+        forms: Vec::new(),
         editors: Vec::new(),
         estimates: None,
         job: None,

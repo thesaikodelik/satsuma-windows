@@ -64,6 +64,8 @@ pub fn run(args: &[String]) -> i32 {
         "render-wheel" => render_wheel(rest),
         "render-icon" => render_icon(rest),
         "render-editor" => render_editor(rest),
+        #[cfg(windows)]
+        "render-form" => render_form(rest),
         #[cfg(feature = "demo")]
         #[cfg(target_os = "macos")]
         "render-demo" => crate::demo::run(rest),
@@ -388,6 +390,39 @@ fn render_icon(args: &[String]) -> i32 {
 }
 
 /// Hidden: `satsuma render-editor crop|frame|edit <image> --out <png> [--segment N] [--set key=value]`.
+/// Hidden: `satsuma render-form <tool id> <files…> --out <png> [--set id=value]`.
+#[cfg(windows)]
+fn render_form(args: &[String]) -> i32 {
+    let Some(tool) = args.first() else {
+        eprintln!("Usage: satsuma render-form <tool id> <files…> --out <png> [--set id=value]");
+        return 2;
+    };
+    let (mut files, mut out, mut sets) = (Vec::new(), None, Vec::new());
+    let mut it = args[1..].iter();
+    while let Some(a) = it.next() {
+        match a.as_str() {
+            "--out" | "-o" => out = it.next().cloned(),
+            "--set" => {
+                if let Some((k, v)) = it.next().and_then(|kv| kv.split_once('=')) {
+                    sets.push((k.parse().unwrap_or(0), v.parse().unwrap_or(0.0)));
+                }
+            }
+            f => files.push(std::path::PathBuf::from(f)),
+        }
+    }
+    let Some(out) = out else {
+        eprintln!("--out is required");
+        return 2;
+    };
+    match crate::platform::render_form(tool, files, &sets, std::path::Path::new(&out)) {
+        Ok(()) => 0,
+        Err(e) => {
+            eprintln!("{e}");
+            1
+        }
+    }
+}
+
 fn render_editor(args: &[String]) -> i32 {
     let (Some(kind), Some(image)) = (args.first(), args.get(1)) else {
         eprintln!("Usage: satsuma render-editor crop|frame <image> --out <png> [--segment N]");
