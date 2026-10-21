@@ -48,7 +48,7 @@ pub fn asks(tool: Tool, files: &[PathBuf]) -> bool {
     match tool {
         Tool::ChangeVideoSpeed | Tool::VideoSnapshots | Tool::SplitVideo | Tool::Compress | Tool::AudioChannels | Tool::AudioToVideo | Tool::CreateCollage => true,
         Tool::RemoveMetadata => matches!(fmt.category(), Category::Audio | Category::Video) || fmt == Format::Pdf,
-        Tool::TrimVideo | Tool::TrimAudio => true,
+        Tool::TrimVideo | Tool::TrimAudio | Tool::CropVideo => true,
         _ => false,
     }
 }
@@ -75,6 +75,7 @@ pub fn form_for(tool: Tool, files: &[PathBuf]) -> Option<Box<dyn Form>> {
         Tool::RemoveMetadata if matches!(fmt.category(), Category::Audio | Category::Video) || fmt == Format::Pdf => Box::new(Tags::new(files, fmt == Format::Pdf)),
         Tool::TrimVideo => Box::new(super::timeline::Trim::new(files, true)?),
         Tool::TrimAudio => Box::new(super::timeline::Trim::new(files, false)?),
+        Tool::CropVideo => Box::new(super::cropvideo::CropVideo::new(files)?),
         _ => return None,
     })
 }

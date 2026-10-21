@@ -789,9 +789,11 @@ pub fn crop_video(env: &Env, input: &Path, in_fmt: Format, out: &Path, rect: (f6
     let p = probe(env, input)?;
     let (vw, vh) = p.video.ok_or_else(|| Error::msg("This file has no picture to crop."))?;
     let even = |v: f64| ((v.round() as i64).max(2) / 2 * 2) as u32;
-    let (x, y) = (even(rect.0 * vw as f64), even(rect.1 * vh as f64));
-    let w = even(rect.2 * vw as f64).min(vw - x);
-    let h = even(rect.3 * vh as f64).min(vh - y);
+    // Keep the size; move the box back inside the picture if rounding pushed it out.
+    let w = even(rect.2 * vw as f64).min(vw / 2 * 2);
+    let h = even(rect.3 * vh as f64).min(vh / 2 * 2);
+    let x = (even(rect.0 * vw as f64)).min(vw - w) / 2 * 2;
+    let y = (even(rect.1 * vh as f64)).min(vh - h) / 2 * 2;
     if w < 16 || h < 16 {
         return Err(Error::msg("The crop is too small."));
     }
