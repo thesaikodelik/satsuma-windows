@@ -13,11 +13,6 @@ path = "src/main.rs"
 name = "satsuma-cli"
 path = "src/bin/satsuma-cli.rs"
 
-# Windows installer: the release zip is appended to it by scripts/package-windows.ps1.
-[[bin]]
-name = "satsuma-setup"
-path = "src/bin/satsuma-setup.rs"
-
 [features]
 # Hidden `render-demo` command that renders the README video and screenshots.
 demo = []
@@ -45,4 +40,4 @@ tiny-skia = "0.12"
 zip = { version = "9", default-features = false, features = ["deflate"] }
 
 [target.'cfg(windows)'.build-dependencies]
-winres = "0.1"
+embed-resource = "3"

@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/media/banner.png" alt="ساتسوما: فایل را بکش، یک کلید بزن، روی گلبرگ رها کن" width="100%">
+  <img src="docs/media/logo-banner.jpg" alt="ساتسوما: بکش، بزن، رها کن" width="100%">
 </p>
 
 <p align="center">
@@ -34,6 +34,12 @@ PDFها یکی می‌شوند و عکس پس‌زمینه می‌گیرد. هم
 
 این نسخه‌ی ویندوزی [Satsuma](https://github.com/sonatina-dream/satsuma) از sonatina-dream است که
 به‌شکل بومی برای ویندوز ۱۱ و با ظاهر *Liquid Glass* خودش ساخته شده.
+
+</div>
+
+<p align="center"><img src="docs/media/highlights-fa.png" width="100%" alt="همه‌ی فرمت‌ها، یک ضربه، خصوصی، خودش به‌روز می‌شود"></p>
+
+<div dir="rtl">
 
 ---
 
@@ -168,19 +174,11 @@ PDFها یکی می‌شوند و عکس پس‌زمینه می‌گیرد. هم
 
 <br clear="left">
 
-## 🗂 نسخه‌ها
+## 🗂 تازه‌ها
 
-همه‌ی نسخه‌ها، با تغییرات و فایل‌هایشان، در
-**[صفحه‌ی Releases](https://github.com/thesaikodelik/satsuma-windows/releases)** هستند. فقط به
-جدیدترین نیاز دارید؛ بعد از آن ساتسوما خودش به‌روز می‌شود.
-
-| نسخه | مهم‌ترین تغییرات | دانلود |
-| --- | --- | --- |
-| **1.0.0** | اولین نسخه‌ی پایدار: نصب‌کننده‌ی کامل، بخش About و به‌روزرسانی خودکار بدون هیچ کلیک. | [نصب‌کننده](https://github.com/thesaikodelik/satsuma-windows/releases/download/v1.0.0-windows/Satsuma-Setup-1.0.0.exe) · [ZIP](https://github.com/thesaikodelik/satsuma-windows/releases/download/v1.0.0-windows/Satsuma-1.0.0-windows-x64.zip) |
-| 0.1.8 | به‌روزرسانی‌ها وقتی برنامه بیکار است خودشان نصب می‌شوند. | [صفحه‌ی نسخه](https://github.com/thesaikodelik/satsuma-windows/releases/tag/v0.1.8-windows) |
-| 0.1.6 | رها کردن در وسط چرخ، به‌روزرسانی آماده را نصب می‌کند. | [صفحه‌ی نسخه](https://github.com/thesaikodelik/satsuma-windows/releases/tag/v0.1.6-windows) |
-| 0.1.3 | نصب‌کننده‌ی ساتسوما و *Settings › About*. | [صفحه‌ی نسخه](https://github.com/thesaikodelik/satsuma-windows/releases/tag/v0.1.3-windows) |
-| 0.1.0 | اولین نسخه‌ی ویندوز. | [صفحه‌ی نسخه](https://github.com/thesaikodelik/satsuma-windows/releases/tag/v0.1.0-windows) |
+جدیدترین نسخه، فایل‌هایش و **همه‌ی تغییرات همه‌ی نسخه‌ها تا امروز** در
+**[آخرین ریلیز](https://github.com/thesaikodelik/satsuma-windows/releases/latest)** است. فقط به همان
+نیاز دارید؛ بعد از آن ساتسوما خودش به‌روز می‌شود.
 
 ## 🔒 حریم خصوصی
 
@@ -196,6 +194,7 @@ PDFها یکی می‌شوند و عکس پس‌زمینه می‌گیرد. هم
 - [**Satsuma**](https://github.com/sonatina-dream/satsuma) از **sonatina-dream**، برنامه‌ی مک که این
   نسخه از آن ساخته شده.
 - ایده‌ی کار از [Tangerine](https://tangerineformac.com) برای مک گرفته شده.
+- آیکون‌های کارت‌ها: [Fluent Emoji](https://github.com/microsoft/fluentui-emoji) از مایکروسافت (MIT).
 - نسخه‌ی ویندوز از [**thesaikodelik**](https://github.com/thesaikodelik). اگر وقتتان را صرفه‌جویی
   کرد، می‌توانید [یک قهوه مهمانم کنید](https://github.com/sponsors/thesaikodelik). ☕
 

@@ -8,7 +8,9 @@ $root = Split-Path -Parent $PSScriptRoot
 Set-Location $root
 
 $version = (Select-String -Path Cargo.toml -Pattern '^version = "(.+)"' | Select-Object -First 1).Matches[0].Groups[1].Value
-cargo build --release -p satsuma-app
+# Keep the builder's home folder (and so their user name) out of the executables' embedded paths.
+$env:RUSTFLAGS = "--remap-path-prefix=$($env:USERPROFILE)=~"
+cargo build --release -p satsuma-app -p satsuma-setup
 if ($LASTEXITCODE -ne 0) { throw 'cargo build failed' }
 
 $name = "Satsuma-$version-windows-x64"
@@ -62,7 +64,7 @@ Write-Host "Packed $zip"
 
 # Satsuma Setup: the installer program with the release zip appended
 # (stub | zip | zip length as u64 LE | "SATSUMA1").
-$setup = Join-Path $dist "Satsuma-Setup-$version.exe"
+$setup = Join-Path $dist 'Satsuma-Setup.exe'
 $stub = [IO.File]::ReadAllBytes((Join-Path $root 'target\release\satsuma-setup.exe'))
 $payload = [IO.File]::ReadAllBytes($zip)
 $out = New-Object IO.MemoryStream
@@ -74,5 +76,6 @@ $magic = [Text.Encoding]::ASCII.GetBytes('SATSUMA1')
 $out.Write($magic, 0, 8)
 [IO.File]::WriteAllBytes($setup, $out.ToArray())
 Write-Host "Packed $setup"
-# The same installer under a fixed name, so releases/latest/download/Satsuma-Setup.exe always works.
-Copy-Item $setup (Join-Path $dist 'Satsuma-Setup.exe') -Force
+# Release: Satsuma-Setup.exe (a fixed name, so releases/latest/download/Satsuma-Setup.exe always
+# works) and the zip, which the app's updater downloads.
+Get-FileHash $setup, $zip -Algorithm SHA256 | ForEach-Object { '{0}  {1}' -f $_.Hash.ToLower(), (Split-Path $_.Path -Leaf) }

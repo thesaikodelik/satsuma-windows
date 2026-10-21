@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/media/banner.png" alt="Satsuma: drag a file, tap a key, drop on a petal" width="100%">
+  <img src="docs/media/logo-banner.jpg" alt="Satsuma: drag, tap, drop" width="100%">
 </p>
 
 <p align="center">
@@ -31,6 +31,8 @@ background. Everything happens on your PC; nothing is uploaded.
 
 This is the Windows edition of [Satsuma](https://github.com/sonatina-dream/satsuma) by
 sonatina-dream, rebuilt natively for Windows 11 with a *Liquid Glass* look of its own.
+
+<p align="center"><img src="docs/media/highlights.png" width="100%" alt="Every format, one tap, private, updates itself"></p>
 
 ---
 
@@ -148,19 +150,11 @@ Uninstall from **Settings → Apps**. You can keep your settings.
 
 <br clear="right">
 
-## 🗂 Versions
+## 🗂 What's new
 
-Every version, with what changed and its files, is on the
-**[Releases page](https://github.com/thesaikodelik/satsuma-windows/releases)**. You only ever need
-the newest; Satsuma updates itself after that.
-
-| Version | Highlights | Download |
-| --- | --- | --- |
-| **1.0.0** | The first stable release: a polished installer, About, and self-updating that needs no clicks. | [Setup](https://github.com/thesaikodelik/satsuma-windows/releases/download/v1.0.0-windows/Satsuma-Setup-1.0.0.exe) · [ZIP](https://github.com/thesaikodelik/satsuma-windows/releases/download/v1.0.0-windows/Satsuma-1.0.0-windows-x64.zip) |
-| 0.1.8 | Updates install themselves while Satsuma is idle. | [Release](https://github.com/thesaikodelik/satsuma-windows/releases/tag/v0.1.8-windows) |
-| 0.1.6 | Drop on the wheel's middle to install a waiting update. | [Release](https://github.com/thesaikodelik/satsuma-windows/releases/tag/v0.1.6-windows) |
-| 0.1.3 | Satsuma Setup and *Settings › About*. | [Release](https://github.com/thesaikodelik/satsuma-windows/releases/tag/v0.1.3-windows) |
-| 0.1.0 | The first Windows release. | [Release](https://github.com/thesaikodelik/satsuma-windows/releases/tag/v0.1.0-windows) |
+The newest version, its files and **everything that changed in every version so far** are on the
+**[latest release](https://github.com/thesaikodelik/satsuma-windows/releases/latest)**. You only ever
+need that one; Satsuma updates itself after that.
 
 ## 🔒 Private by design
 
@@ -176,7 +170,7 @@ Stable Rust with the MSVC toolchain.
 
 ```powershell
 winget install Rustlang.Rustup
-cargo build --release -p satsuma-app     # target\release\satsuma.exe, satsuma-cli.exe, satsuma-setup.exe
+cargo build --release -p satsuma-app -p satsuma-setup   # satsuma.exe, satsuma-cli.exe, satsuma-setup.exe
 cargo test --workspace
 powershell -ExecutionPolicy Bypass -File scripts\package-windows.ps1   # dist\Satsuma-Setup-<version>.exe
 ```
@@ -206,6 +200,7 @@ file drag reaches it. More in [docs/WINDOWS.md](docs/WINDOWS.md).
 - [**Satsuma**](https://github.com/sonatina-dream/satsuma) by **sonatina-dream**, the macOS app this
   edition is built from.
 - The workflow is inspired by [Tangerine](https://tangerineformac.com) for Mac.
+- Icons in the highlights: [Fluent Emoji](https://github.com/microsoft/fluentui-emoji) by Microsoft (MIT).
 - Windows edition by [**thesaikodelik**](https://github.com/thesaikodelik). If it saves you time,
   you can [buy me a coffee](https://github.com/sponsors/thesaikodelik). ☕
 

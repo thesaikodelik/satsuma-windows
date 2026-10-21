@@ -1,0 +1,17 @@
+[package]
+name = "satsuma-setup"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Satsuma Setup: the Windows installer and uninstaller."
+
+# Its own crate so the installer carries its own icon (the app's with an install badge).
+[[bin]]
+name = "satsuma-setup"
+path = "src/main.rs"
+
+[dependencies]
+satsuma-app = { path = "../satsuma-app" }
+
+[target.'cfg(windows)'.build-dependencies]
+embed-resource = "3"

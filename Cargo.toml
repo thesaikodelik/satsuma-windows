@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/satsuma-core", "crates/satsuma-engine", "crates/satsuma-app"]
+members = ["crates/satsuma-core", "crates/satsuma-engine", "crates/satsuma-app", "crates/satsuma-setup"]
 
 [workspace.package]
 version = "1.0.0"
