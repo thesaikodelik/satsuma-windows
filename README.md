@@ -59,9 +59,13 @@ sonatina-dream, rebuilt natively for Windows 11 with a *Liquid Glass* look of it
 
 **The wheel shows the work.** After you drop, the wheel stays where it is: a thin ring of light
 fills along its edge, and the hub counts the percent. Hover the hub to **Cancel**; a tick shows when
-it's done. A small panel reports the result:
+it's done.
 
-<img src="docs/media/hud.png" width="380" alt="Converting to PNG: Saved Sunset.png">
+When there's no wheel to show it on (a job started from a tool window, or one still running when you
+start a new drag), a small panel shows the progress instead, and its **×** cancels the job. If
+something goes wrong, the panel says what:
+
+<img src="docs/media/hud.png" width="380" alt="The small panel after Change Speed: Saved Lakes Speed 2x.mp4">
 
 No drag handy? **Convert Files…** in Satsuma's menu opens the same wheel for files you pick; arrow
 keys move around it, Enter applies.
