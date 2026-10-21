@@ -27,6 +27,8 @@ pub enum UiEvent {
     SettingsEdited(Box<satsuma_core::settings::Settings>),
     /// Settings › About: install the downloaded update now.
     RestartToUpdate,
+    /// The hub of a wheel showing a job's progress was clicked: stop the job.
+    WheelCancelJob,
 }
 
 thread_local! {

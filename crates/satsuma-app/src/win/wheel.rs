@@ -50,7 +50,28 @@ pub struct WheelModel {
     pub liquid: Liquid,
     /// Drawn on a window that is glass already (the Settings preview).
     pub on_glass_window: bool,
+    /// After a drop: the job's progress, drawn as a ring around the wheel.
+    pub work: Option<Work>,
 }
+
+/// A job running from the wheel: its progress fills a ring around the disc, one turn in all.
+#[derive(Clone, Debug)]
+pub struct Work {
+    /// What the job has reported (0–1).
+    pub target: f32,
+    /// What the ring shows, easing towards `target`.
+    pub shown: f32,
+    pub started: std::time::Instant,
+    /// When the job finished; the ring completes and a check shows briefly.
+    pub done: Option<std::time::Instant>,
+    /// The pointer is over the hub, which then offers to cancel.
+    pub hover: bool,
+    /// The job reports its progress (a file part-way), so the ring follows it exactly.
+    pub reported: bool,
+}
+
+/// How long the finished wheel stays, with its check, before it goes.
+const WORK_LINGER: f32 = 0.9;
 
 impl WheelModel {
     pub fn new(mode: WheelMode, items: Vec<WheelItem>) -> WheelModel {
@@ -69,6 +90,7 @@ impl WheelModel {
             phase: 0.0,
             liquid: Liquid::default(),
             on_glass_window: false,
+            work: None,
         }
     }
 }
@@ -196,9 +218,15 @@ pub fn paint(p: &Painter, m: &WheelModel, pal: &Palette, behind: Option<&Behind>
         let size = WHEEL_VIEW_SIZE as f32;
         p.fill_round_rect_image(disc, backdrop, (0.0, 0.0, size, size), px, *w, *h);
     }
+    if let (true, Some(w)) = (pal.glass, &m.work) {
+        paint_work_light(p, w, c, &g, false);
+    }
     // On a glass window (the Settings preview) the window's tint is the disc's tint already.
     if !(pal.glass && m.on_glass_window) {
         p.fill_circle(c, c, backdrop, pal.backdrop);
+    }
+    if let (false, Some(w)) = (pal.glass, &m.work) {
+        paint_work_light(p, w, c, &g, false);
     }
     if pal.glass {
         // 30nama's drawn glass: a faint body, a glare from above and a lit rim.
@@ -214,6 +242,9 @@ pub fn paint(p: &Painter, m: &WheelModel, pal: &Palette, behind: Option<&Behind>
     if m.items.is_empty() {
         p.text(empty_message(m.mode), (c - 85.0, c - 30.0, 170.0, 60.0), 12.0, Weight::Semibold, pal.secondary, Align::Center, true);
         return;
+    }
+    if let Some(w) = &m.work {
+        paint_work_light(p, w, c, &g, true);
     }
     let n = m.items.len();
     let dense = n > 6;
@@ -283,6 +314,10 @@ pub fn paint(p: &Painter, m: &WheelModel, pal: &Palette, behind: Option<&Behind>
             p.fill_circle(c, c, r, pal.control.alpha(if selected.is_some() { 1.0 } else { 0.85 }));
         }
     }
+    if let Some(w) = &m.work {
+        paint_work(p, w, selected, pal, c, accent, &g);
+        return;
+    }
     if let Some(item) = selected {
         // The result's size, with the petal's name under it.
         let size = match m.estimates.get(item) {
@@ -317,6 +352,79 @@ pub fn paint(p: &Painter, m: &WheelModel, pal: &Palette, behind: Option<&Behind>
             let (size, color) = if k == 0 { (10.5, pal.label) } else { (9.0, pal.secondary) };
             let y = c - (n - 1.0) * 6.5 + k as f32 * 13.0;
             p.text_centered(line, c, y, size, Weight::Semibold, color);
+        }
+    }
+}
+
+/// A job dropped on the wheel: its progress is orange light running once around under the
+/// glass, from the top, clockwise. Drawn before the glass, so the tint, the petals and the
+/// glare lie over it and it glows through, soft. When the circle closes the job is done:
+/// the light swells once, and a check draws itself in the hub.
+fn paint_work_light(p: &Painter, w: &Work, c: f32, g: &WheelGeometry, over_glass: bool) {
+    let ring = (g.outer + 1.5) as f32;
+    let f = w.shown.clamp(0.0, 1.0);
+    if f <= 0.0 {
+        return;
+    }
+    let swell = w.done.map(|d| (d.elapsed().as_secs_f32() / 0.5).min(1.0)).unwrap_or(0.0);
+    let boost = 1.0 + 0.5 * (swell * std::f32::consts::PI).sin();
+    let colour = |alpha: f32| Rgba(1.0, 0.52, 0.16, (alpha * boost).min(1.0));
+    if over_glass {
+        // On the glass: a thin, bright filament with a tight glow, white-hot at its centre.
+        p.stroke_arc(c, c, ring, 0.0, f, colour(0.10), 7.0);
+        p.stroke_arc(c, c, ring, 0.0, f, colour(0.22), 3.6);
+        p.stroke_arc(c, c, ring, 0.0, f, Rgba(1.0, 0.66, 0.38, (0.8 * boost).min(1.0)), 1.8);
+        p.stroke_arc(c, c, ring, 0.0, f, Rgba(1.0, 0.9, 0.8, (0.45 * boost).min(1.0)), 0.7);
+    } else {
+        // Under the glass: a soft halo the tint diffuses.
+        for (width, alpha) in [(22.0, 0.09), (12.0, 0.17)] {
+            p.stroke_arc(c, c, ring, 0.0, f, colour(alpha), width);
+        }
+    }
+    // The head glows a little brighter.
+    if f < 0.999 {
+        let a = f * std::f32::consts::TAU;
+        let (hx, hy) = (c + ring * a.sin(), c - ring * a.cos());
+        if over_glass {
+            p.fill_circle(hx, hy, 4.5, ACCENT.alpha(0.2));
+            p.fill_circle(hx, hy, 1.9, Rgba(1.0, 0.92, 0.84, 0.75));
+        } else {
+            p.fill_circle(hx, hy, 14.0, ACCENT.alpha(0.13 * boost));
+        }
+    }
+}
+
+/// The hub while a job runs on the wheel: the percentage, Cancel under the pointer, then a
+/// check that draws itself.
+fn paint_work(p: &Painter, w: &Work, item: Option<&WheelItem>, pal: &Palette, c: f32, accent: Rgba, g: &WheelGeometry) {
+    let f = w.shown.clamp(0.0, 1.0);
+    let r = (g.inner - 6.0) as f32;
+    match w.done {
+        Some(at) => {
+            let d = at.elapsed().as_secs_f32();
+            p.fill_circle(c, c, r - 1.0, accent.alpha(0.14 * (d / 0.3).min(1.0)));
+            let k = (d / 0.35).min(1.0);
+            let pts = [(c - 13.0, c + 1.0), (c - 4.0, c + 10.0), (c + 14.0, c - 9.0)];
+            let lerp = |a: (f32, f32), b: (f32, f32), k: f32| (a.0 + (b.0 - a.0) * k, a.1 + (b.1 - a.1) * k);
+            let first = lerp(pts[0], pts[1], (k * 2.0).min(1.0));
+            p.line(pts[0].0, pts[0].1, first.0, first.1, accent, 3.6);
+            p.fill_circle(pts[0].0, pts[0].1, 1.8, accent);
+            p.fill_circle(first.0, first.1, 1.8, accent);
+            if k > 0.5 {
+                let second = lerp(pts[1], pts[2], (k - 0.5) * 2.0);
+                p.line(pts[1].0, pts[1].1, second.0, second.1, accent, 3.6);
+                p.fill_circle(second.0, second.1, 1.8, accent);
+            }
+        }
+        None if w.hover => {
+            p.fill_circle(c, c, r - 1.0, accent.alpha(0.16));
+            p.text_centered("Cancel", c, c, 12.0, Weight::Bold, accent);
+        }
+        None => {
+            p.text_centered(&format!("{:.0}%", f * 100.0), c, c - 5.0, 15.0, Weight::Bold, accent);
+            if let Some(item) = item {
+                p.text_centered(&item.title(), c, c + 11.0, 7.5, Weight::Semibold, pal.secondary);
+            }
         }
     }
 }
@@ -484,6 +592,21 @@ impl Handler for Messages {
             }
             WM_MOUSEMOVE => {
                 let mut s = self.state.try_borrow_mut().ok()?;
+                if s.model.work.as_ref().is_some_and(|w| w.done.is_none()) {
+                    let (ox, oy) = s.origin();
+                    let over = s.in_hub(ox + window::loword(lparam.0), oy + window::hiword(lparam.0));
+                    if let Some(w) = s.model.work.as_mut() {
+                        if w.hover != over {
+                            w.hover = over;
+                            render(hwnd, &s);
+                        }
+                    }
+                    let mut track = TRACKMOUSEEVENT { cbSize: std::mem::size_of::<TRACKMOUSEEVENT>() as u32, dwFlags: TME_LEAVE, hwndTrack: hwnd, dwHoverTime: 0 };
+                    unsafe {
+                        let _ = TrackMouseEvent(&mut track);
+                    }
+                    return Some(LRESULT(0));
+                }
                 if s.model.keyboard {
                     let (ox, oy) = s.origin();
                     let hit = s.hit(ox + window::loword(lparam.0), oy + window::hiword(lparam.0));
@@ -493,8 +616,26 @@ impl Handler for Messages {
                 }
                 Some(LRESULT(0))
             }
+            // WM_MOUSELEAVE
+            0x02A3 => {
+                let mut s = self.state.try_borrow_mut().ok()?;
+                if let Some(w) = s.model.work.as_mut() {
+                    if w.hover {
+                        w.hover = false;
+                        render(hwnd, &s);
+                    }
+                }
+                Some(LRESULT(0))
+            }
             WM_LBUTTONDOWN => {
                 let s = self.state.try_borrow().ok()?;
+                if s.model.work.as_ref().is_some_and(|w| w.done.is_none()) {
+                    let (ox, oy) = s.origin();
+                    if s.in_hub(ox + window::loword(lparam.0), oy + window::hiword(lparam.0)) {
+                        events::post(UiEvent::WheelCancelJob);
+                    }
+                    return Some(LRESULT(0));
+                }
                 if s.model.keyboard {
                     let (ox, oy) = s.origin();
                     match s.hit(ox + window::loword(lparam.0), oy + window::hiword(lparam.0)).and_then(|i| s.model.items.get(i)) {
@@ -672,11 +813,60 @@ impl WheelWindow {
         }
     }
 
+    /// The files were dropped on a petal: the wheel stays and shows the job's progress.
+    pub fn begin_work(&self) {
+        let mut s = self.state.borrow_mut();
+        s.model.keyboard = false;
+        s.model.estimating = false;
+        s.model.hub_hot = false;
+        s.model.work = Some(Work { target: 0.0, shown: 0.0, started: std::time::Instant::now(), done: None, hover: false, reported: false });
+        if s.visible && !s.probing {
+            render(self.hwnd, &s);
+        }
+    }
+
+    pub fn set_progress(&self, fraction: f32) {
+        if let Ok(mut s) = self.state.try_borrow_mut() {
+            if let Some(w) = s.model.work.as_mut() {
+                let f = fraction.clamp(0.0, 1.0);
+                if f > 0.0 && f < 1.0 {
+                    w.reported = true;
+                }
+                w.target = w.target.max(f);
+            }
+        }
+    }
+
+    /// The job finished well: the ring closes, a check shows, then the wheel goes.
+    pub fn finish_work(&self) {
+        if let Ok(mut s) = self.state.try_borrow_mut() {
+            if let Some(w) = s.model.work.as_mut() {
+                w.target = 1.0;
+                w.done = Some(std::time::Instant::now());
+                w.hover = false;
+            }
+        }
+    }
+
+    /// Showing a job's progress.
+    pub fn is_working(&self) -> bool {
+        self.state.try_borrow().map(|s| s.visible && s.model.work.is_some()).unwrap_or(false)
+    }
+
+    /// The ring has closed and the check has been seen.
+    pub fn work_over(&self) -> bool {
+        self.state
+            .try_borrow()
+            .map(|s| s.model.work.as_ref().is_some_and(|w| w.shown >= 0.995 && w.done.is_some_and(|d| d.elapsed().as_secs_f32() > WORK_LINGER)))
+            .unwrap_or(false)
+    }
+
     pub fn hide(&self) {
         if let Ok(mut s) = self.state.try_borrow_mut() {
             s.visible = false;
             s.probing = false;
             s.model.keyboard = false;
+            s.model.work = None;
         }
         unsafe {
             let _ = ShowWindow(self.hwnd, SW_HIDE);
@@ -709,7 +899,24 @@ impl WheelWindow {
         if flowing {
             s.model.liquid.step(std::time::Instant::now());
         }
-        if waiting || flowing {
+        let working = s.visible && s.model.work.is_some();
+        if let Some(w) = s.model.work.as_mut() {
+            // One file reports nothing until it's done: creep on so the ring never stands still.
+            let creep = 0.9 * (1.0 - (-w.started.elapsed().as_secs_f32() / 2.5).exp());
+            let goal = if w.done.is_some() {
+                1.0
+            } else if w.reported {
+                w.target.min(0.99)
+            } else {
+                w.target.max(creep).min(0.97)
+            };
+            let k = if w.done.is_some() { 0.22 } else { 0.1 };
+            w.shown += (goal - w.shown) * k;
+            if w.done.is_some() && w.shown > 0.995 {
+                w.shown = 1.0;
+            }
+        }
+        if waiting || flowing || working {
             s.model.phase = s.started.elapsed().as_secs_f32();
             render(self.hwnd, &s);
         }

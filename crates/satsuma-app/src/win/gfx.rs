@@ -333,6 +333,58 @@ impl Painter {
         unsafe { self.rt.DrawGeometry(geo, &self.brush(c), width, None) }
     }
 
+    /// Part of the circle of radius `r` around (`cx`, `cy`), from `from` to `to` (fractions
+    /// of a turn, clockwise from the top), stroked with round ends.
+    pub fn stroke_arc(&self, cx: f32, cy: f32, r: f32, from: f32, to: f32, c: Rgba, width: f32) {
+        self.stroke_arc_ends(cx, cy, r, from, to, c, width, true);
+    }
+
+    /// [`Painter::stroke_arc`] with round or flat ends.
+    #[allow(clippy::too_many_arguments)]
+    pub fn stroke_arc_ends(&self, cx: f32, cy: f32, r: f32, from: f32, to: f32, c: Rgba, width: f32, round: bool) {
+        if to - from <= 0.0005 {
+            return;
+        }
+        let at = |f: f32| {
+            let a = f * std::f32::consts::TAU;
+            D2D_POINT_2F { X: cx + r * a.sin(), Y: cy - r * a.cos() }
+        };
+        unsafe {
+            let Ok(geo) = FACTORIES.with(|f| f.d2d.CreatePathGeometry()) else { return };
+            let Ok(sink) = geo.Open() else { return };
+            sink.BeginFigure(at(from), D2D1_FIGURE_BEGIN_HOLLOW);
+            // A quarter turn at most per segment, so the arc's direction is never ambiguous.
+            let mut a = from;
+            while a < to - 1e-4 {
+                let b = (a + 0.25).min(to);
+                sink.AddArc(&D2D1_ARC_SEGMENT {
+                    point: at(b),
+                    size: D2D_SIZE_F { width: r, height: r },
+                    rotationAngle: 0.0,
+                    sweepDirection: D2D1_SWEEP_DIRECTION_CLOCKWISE,
+                    arcSize: D2D1_ARC_SIZE_SMALL,
+                });
+                a = b;
+            }
+            sink.EndFigure(D2D1_FIGURE_END_OPEN);
+            if sink.Close().is_err() {
+                return;
+            }
+            let cap = if round { D2D1_CAP_STYLE_ROUND } else { D2D1_CAP_STYLE_FLAT };
+            let props = D2D1_STROKE_STYLE_PROPERTIES {
+                startCap: cap,
+                endCap: cap,
+                dashCap: D2D1_CAP_STYLE_ROUND,
+                lineJoin: D2D1_LINE_JOIN_ROUND,
+                miterLimit: 10.0,
+                dashStyle: D2D1_DASH_STYLE_SOLID,
+                dashOffset: 0.0,
+            };
+            let style = FACTORIES.with(|f| f.d2d.CreateStrokeStyle(&props, None)).ok();
+            self.rt.DrawGeometry(&geo, &self.brush(c), width, style.as_ref());
+        }
+    }
+
     pub fn fill_circle(&self, x: f32, y: f32, r: f32, c: Rgba) {
         let e = D2D1_ELLIPSE { point: D2D_POINT_2F { X: x, Y: y }, radiusX: r, radiusY: r };
         unsafe { self.rt.FillEllipse(&e, &self.brush(c)) }

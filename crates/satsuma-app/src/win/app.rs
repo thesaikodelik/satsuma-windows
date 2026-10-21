@@ -58,12 +58,15 @@ struct RunningJob {
     cancel: Cancel,
     rx: Receiver<JobMsg>,
     title: String,
+    /// Its progress runs around the wheel it was dropped on (otherwise in the small panel).
+    on_wheel: bool,
 }
 
 struct PendingJob {
     op: Operation,
     files: Vec<PathBuf>,
     at: Point,
+    on_wheel: bool,
 }
 
 /// Work that shows modal UI, so it runs after the controller borrow is released.
@@ -264,6 +267,7 @@ impl Controller {
             phase: 0.0,
             liquid: Default::default(),
             on_glass_window: false,
+            work: None,
         }
     }
 
@@ -309,6 +313,9 @@ impl Controller {
         self.poll_job();
         self.poll_estimates();
         self.wheel.animate();
+        if self.wheel.work_over() {
+            self.wheel.hide();
+        }
         if self.wheel_hide_at.is_some_and(|t| Instant::now() >= t) {
             self.wheel_hide_at = None;
             self.wheel.hide();
@@ -401,6 +408,7 @@ impl Controller {
                     self.probes += 1;
                     self.probe_from = Some(at);
                     self.wheel_hide_at = None;
+                    self.release_wheel_job();
                     self.wheel.probe(at);
                     system::nudge_pointer();
                     self.drag = Drag::Probing { mode, since: Instant::now() };
@@ -451,15 +459,32 @@ impl Controller {
             }
             UiEvent::WheelDrop { item, files, at } => {
                 self.wheel_hide_at = None;
-                self.wheel.hide();
                 self.drag = Drag::Rejected;
-                self.dispatch(item, files, at);
+                let ring = self.ring_for(item);
+                if ring {
+                    self.wheel.begin_work();
+                } else {
+                    self.wheel.hide();
+                }
+                self.dispatch(item, files, at, ring);
             }
             UiEvent::WheelPick { item } => {
                 let at = self.wheel.anchor();
-                self.wheel.hide();
                 if let Some(files) = self.keyboard_files.take() {
-                    self.dispatch(item, files, at);
+                    let ring = self.ring_for(item);
+                    if ring {
+                        self.wheel.begin_work();
+                    } else {
+                        self.wheel.hide();
+                    }
+                    self.dispatch(item, files, at, ring);
+                } else {
+                    self.wheel.hide();
+                }
+            }
+            UiEvent::WheelCancelJob => {
+                if let Some(job) = &self.job {
+                    job.cancel.cancel();
                 }
             }
             UiEvent::WheelCancel => {
@@ -485,7 +510,7 @@ impl Controller {
                 self.floats.retain(|f| f.id() != window);
                 self.editors.retain(|e| e.id() != window);
             }
-            UiEvent::EditorApply { op, files, at } => self.enqueue(PendingJob { op, files, at }),
+            UiEvent::EditorApply { op, files, at } => self.enqueue(PendingJob { op, files, at, on_wheel: false }),
             UiEvent::RestartToUpdate => self.command(CMD_UPDATE),
             UiEvent::SettingsEdited(edited) => {
                 let welcome = self.settings.has_completed_welcome;
@@ -510,11 +535,34 @@ impl Controller {
         self.hud_hide_at = Some(Instant::now() + Duration::from_millis(1400));
     }
 
-    fn dispatch(&mut self, item: WheelItem, files: Vec<PathBuf>, at: Point) {
+    /// A job this petal starts shows its progress around the wheel, when nothing else runs.
+    fn ring_for(&self, item: WheelItem) -> bool {
+        let job = matches!(item, WheelItem::Convert(_)) || matches!(item, WheelItem::Tool(t) if !t.has_editor());
+        job && self.job.is_none() && self.queue.is_empty()
+    }
+
+    /// The wheel is wanted for something new: a job showing on it moves to the small panel.
+    fn release_wheel_job(&mut self) {
+        if !self.wheel.is_working() {
+            return;
+        }
+        let at = self.wheel.anchor();
+        let moved = self.job.as_mut().filter(|j| j.on_wheel).map(|j| {
+            j.on_wheel = false;
+            j.title.clone()
+        });
+        self.wheel.hide();
+        if let Some(title) = moved {
+            self.hud.show(at, HudModel { title, subtitle: "Working…".into(), fraction: Some(0.0), error: false });
+            self.hud_hide_at = None;
+        }
+    }
+
+    fn dispatch(&mut self, item: WheelItem, files: Vec<PathBuf>, at: Point, on_wheel: bool) {
         match item {
-            WheelItem::Convert(f) => self.enqueue(PendingJob { op: Operation::Convert(f), files, at }),
+            WheelItem::Convert(f) => self.enqueue(PendingJob { op: Operation::Convert(f), files, at, on_wheel }),
             WheelItem::Tool(t) if t.has_editor() => self.open_editor(t, files),
-            WheelItem::Tool(t) => self.enqueue(PendingJob { op: Operation::Tool(t), files, at }),
+            WheelItem::Tool(t) => self.enqueue(PendingJob { op: Operation::Tool(t), files, at, on_wheel }),
             WheelItem::Action(action) => self.perform_action(action, files, at),
         }
     }
@@ -578,7 +626,7 @@ impl Controller {
         if self.queue.is_empty() {
             return;
         }
-        let PendingJob { op, files, at } = self.queue.remove(0);
+        let PendingJob { op, files, at, on_wheel } = self.queue.remove(0);
         let (tx, rx) = channel();
         let cancel = Cancel::new();
         let env = self.env.clone();
@@ -601,9 +649,11 @@ impl Controller {
             });
             let _ = tx.send(JobMsg::Done { report, skipped: p.skipped });
         });
-        self.hud.show(at, HudModel { title: title.clone(), subtitle: "Preparing…".into(), fraction: Some(0.0), error: false });
-        self.hud_hide_at = None;
-        self.job = Some(RunningJob { cancel, rx, title });
+        if !on_wheel {
+            self.hud.show(at, HudModel { title: title.clone(), subtitle: "Preparing…".into(), fraction: Some(0.0), error: false });
+            self.hud_hide_at = None;
+        }
+        self.job = Some(RunningJob { cancel, rx, title, on_wheel });
         self.set_working(true);
     }
 
@@ -632,15 +682,34 @@ impl Controller {
                 }
             }
         }
+        let on_wheel = job.on_wheel;
         if let Some(p) = latest {
-            let title = job.title.clone();
-            self.hud.update(HudModel { title, subtitle: format!("{} of {} saved", p.done, p.total), fraction: Some(p.fraction), error: false });
+            if on_wheel {
+                self.wheel.set_progress(p.fraction as f32);
+            } else {
+                let title = job.title.clone();
+                self.hud.update(HudModel { title, subtitle: format!("{} of {} saved", p.done, p.total), fraction: Some(p.fraction), error: false });
+            }
         }
         if let Some((model, linger)) = finished {
             debug!("job finished: {} — {}", model.title, model.subtitle);
             self.job = None;
-            self.hud.update(model);
-            self.hud_hide_at = Some(Instant::now() + linger);
+            if on_wheel {
+                if model.error {
+                    // What went wrong needs words: the small panel says it where the wheel was.
+                    let at = self.wheel.anchor();
+                    self.wheel.hide();
+                    self.hud.show(at, model);
+                    self.hud_hide_at = Some(Instant::now() + linger);
+                } else if model.title == "Cancelled" {
+                    self.wheel.hide();
+                } else {
+                    self.wheel.finish_work();
+                }
+            } else {
+                self.hud.update(model);
+                self.hud_hide_at = Some(Instant::now() + linger);
+            }
             self.set_working(false);
             self.start_next();
             if self.exit_when_idle && self.job.is_none() {
@@ -675,6 +744,7 @@ impl Controller {
         let model = self.model(mode, items.clone(), true, &files);
         let (x, y) = system::cursor_pos();
         let work = system::work_area_at(x, y);
+        self.release_wheel_job();
         self.wheel.show(model, ((work.left + work.right) / 2, (work.top + work.bottom) / 2));
         self.start_estimates(&files, &items);
         self.keyboard_files = Some(files);
