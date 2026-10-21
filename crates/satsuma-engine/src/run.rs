@@ -143,7 +143,7 @@ fn strip_codec_tags(s: &str) -> String {
     out
 }
 
-fn ensure_smaller(input: &Path, output: &Path) -> Result<()> {
+pub(crate) fn ensure_smaller(input: &Path, output: &Path) -> Result<()> {
     let before = std::fs::metadata(input)?.len();
     let after = std::fs::metadata(output)?.len();
     if after >= before {
@@ -200,6 +200,7 @@ fn execute(ctx: &Context, job: &Job, out: &Path, tmp: &Path, progress: &mut dyn 
                 Category::Archive => archive::convert(env, input, fmt, out, target, tmp, cancel, progress)?,
             }
         }
+        Operation::Configured(tool, options) => crate::configured::execute(ctx, job, *tool, options, out, tmp, progress)?,
         Operation::Tool(tool) => match *tool {
             Tool::Compress => {
                 match fmt.category() {

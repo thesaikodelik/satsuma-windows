@@ -6,6 +6,7 @@ use crate::{media, Error, Result};
 use satsuma_core::matrix::conversion_targets;
 use satsuma_core::naming::{conversion_output_name, first_free, tool_output_name};
 use satsuma_core::edit::{Adjustments, CropSpec, FrameSpec};
+use satsuma_core::settings::Strength;
 use satsuma_core::{Format, Tool};
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -20,6 +21,55 @@ pub enum Operation {
     Frame(FrameSpec),
     /// Edit Photo with the editor's adjustments.
     Adjust(Adjustments),
+    /// A tool with the choices made in its options window.
+    Configured(Tool, ToolOptions),
+}
+
+/// What a tool's options window chose. Times are seconds; boxes are fractions of the
+/// picture (x, y, width, height).
+#[derive(Debug, Clone, PartialEq)]
+pub enum ToolOptions {
+    Speed { factor: f64, keep_pitch: bool },
+    /// Frames at these times, as PNG or JPG.
+    Snapshots { times: Vec<f64>, format: Format },
+    /// Cut at these times.
+    Split { points: Vec<f64> },
+    Compress { strength: Strength, target_bytes: Option<u64>, max_edge: Option<u32> },
+    Channels { stereo: bool, left: f64, right: f64 },
+    Visualize { width: u32, height: u32, still: bool },
+    Collage { layout: CollageLayout, cell: u32, gap: u32, background: [u8; 3] },
+    /// Set these tags (empty values remove them); `clear` removes everything else first.
+    Tags { clear: bool, tags: Vec<(String, String)> },
+    Trim { start: f64, end: f64 },
+    CropVideo { x: f64, y: f64, w: f64, h: f64 },
+    /// The new page order: source page (0-based) and extra clockwise rotation in degrees.
+    Pages { pages: Vec<(usize, u16)> },
+    Bleep { ranges: Vec<(f64, f64)>, tone: bool },
+    /// Marks drawn over the picture, as SVG in the picture's pixel coordinates.
+    Annotate { svg: String },
+    Redact { boxes: Vec<[f64; 4]>, style: RedactStyle },
+    RedactVideo { boxes: Vec<[f64; 4]>, style: RedactStyle, from: f64, to: Option<f64> },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CollageLayout {
+    Grid,
+    Row,
+    Column,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RedactStyle {
+    Blur,
+    Pixelate,
+    Solid,
+}
+
+/// Seconds as `1.5x` style text for names.
+fn factor_text(f: f64) -> String {
+    let s = format!("{f:.2}");
+    let s = s.trim_end_matches('0').trim_end_matches('.');
+    format!("{s}x")
 }
 
 impl Operation {
@@ -27,7 +77,7 @@ impl Operation {
     pub fn title(&self) -> String {
         match self {
             Operation::Convert(f) => format!("Converting to {}", f.label()),
-            Operation::Tool(t) => t.info().verb.to_string(),
+            Operation::Tool(t) | Operation::Configured(t, _) => t.info().verb.to_string(),
             Operation::Crop(_) => Tool::CropImage.info().verb.to_string(),
             Operation::Frame(_) => Tool::FrameImage.info().verb.to_string(),
             Operation::Adjust(_) => Tool::EditImage.info().verb.to_string(),
@@ -37,7 +87,7 @@ impl Operation {
     /// The tool an edit operation belongs to.
     pub fn tool(&self) -> Option<Tool> {
         match self {
-            Operation::Tool(t) => Some(*t),
+            Operation::Tool(t) | Operation::Configured(t, _) => Some(*t),
             Operation::Crop(_) => Some(Tool::CropImage),
             Operation::Frame(_) => Some(Tool::FrameImage),
             Operation::Adjust(_) => Some(Tool::EditImage),
@@ -143,7 +193,11 @@ pub fn plan(env: &Env, paths: &[PathBuf], op: Operation) -> Result<Plan> {
                 plan.jobs.push(Job { inputs: vec![path.clone()], format: fmt, op: op.clone(), output });
             }
         }
-        Operation::Tool(tool) => {
+        Operation::Tool(tool) | Operation::Configured(tool, _) => {
+            let options = match &op {
+                Operation::Configured(_, o) => Some(o.clone()),
+                _ => None,
+            };
             let mut usable = Vec::new();
             for path in paths {
                 match detect_format(path) {
@@ -182,16 +236,30 @@ pub fn plan(env: &Env, paths: &[PathBuf], op: Operation) -> Result<Plan> {
                 });
             } else {
                 for (path, fmt) in usable {
-                    let label = match tool {
-                        Tool::AudioChannels => {
-                            if media::target_channels(env, &path) == 1 { "Mono" } else { "Stereo" }
+                    let label = match (tool, &options) {
+                        (Tool::AudioChannels, Some(ToolOptions::Channels { stereo, .. })) => {
+                            if *stereo { "Stereo".to_string() } else { "Mono".to_string() }
                         }
-                        _ => tool.info().label,
+                        (Tool::AudioChannels, _) => {
+                            if media::target_channels(env, &path) == 1 { "Mono".into() } else { "Stereo".into() }
+                        }
+                        (Tool::ChangeVideoSpeed, Some(ToolOptions::Speed { factor, .. })) => format!("Speed {}", factor_text(*factor)),
+                        (Tool::RemoveMetadata, Some(ToolOptions::Tags { .. })) => "Tagged".into(),
+                        _ => tool.info().label.to_string(),
                     };
+                    let mut output_format = tool.output_format(fmt);
+                    let mut folder = false;
+                    if let Some(ToolOptions::Snapshots { times, format }) = &options {
+                        output_format = Some(*format);
+                        folder = times.len() > 1;
+                    }
                     let name = file_name(&path);
-                    let output = reserved.name_in(&parent(&path), |taken| {
-                        tool_output_name(&name, label, tool.output_format(fmt), taken)
-                    });
+                    let output = if folder {
+                        let stem = name.rsplit_once('.').map(|(s, _)| s).unwrap_or(&name).to_string();
+                        reserved.name_in(&parent(&path), |taken| first_free(&format!("{stem} Snapshots"), None, taken))
+                    } else {
+                        reserved.name_in(&parent(&path), |taken| tool_output_name(&name, &label, output_format, taken))
+                    };
                     plan.jobs.push(Job { inputs: vec![path], format: fmt, op: op.clone(), output });
                 }
             }

@@ -7,6 +7,7 @@
 
 pub mod archive;
 pub mod capability;
+mod configured;
 pub mod doc;
 pub mod docx;
 pub mod env;

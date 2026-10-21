@@ -194,6 +194,68 @@ pub fn strip_metadata(input: &Path, out: &Path) -> Result<()> {
     save(&mut doc, out)
 }
 
+/// The document information fields (Title, Author, Subject, Keywords …) with their text.
+pub fn read_info(input: &Path) -> Vec<(String, String)> {
+    let Ok(doc) = open(input) else { return Vec::new() };
+    let info = match doc.trailer.get(b"Info") {
+        Ok(Object::Reference(id)) => doc.get_object(*id).ok().and_then(|o| o.as_dict().ok()).cloned(),
+        Ok(Object::Dictionary(d)) => Some(d.clone()),
+        _ => None,
+    };
+    let Some(info) = info else { return Vec::new() };
+    info.iter()
+        .filter_map(|(k, v)| {
+            let text = match v {
+                Object::String(bytes, _) => decode_text(bytes),
+                _ => return None,
+            };
+            Some((String::from_utf8_lossy(k).into_owned(), text))
+        })
+        .collect()
+}
+
+/// PDF text strings are PDFDocEncoding or UTF-16BE with a byte-order mark.
+fn decode_text(bytes: &[u8]) -> String {
+    if bytes.starts_with(&[0xFE, 0xFF]) {
+        let units: Vec<u16> = bytes[2..].chunks_exact(2).map(|c| u16::from_be_bytes([c[0], c[1]])).collect();
+        String::from_utf16_lossy(&units)
+    } else {
+        bytes.iter().map(|&b| b as char).collect()
+    }
+}
+
+/// Set (or, with an empty value, remove) document information fields. `clear` drops all
+/// fields and XMP metadata first.
+pub fn set_info(input: &Path, out: &Path, clear: bool, tags: &[(String, String)]) -> Result<()> {
+    let tmp = tempfile::tempdir()?;
+    let source = if clear {
+        let stripped = tmp.path().join("stripped.pdf");
+        strip_metadata(input, &stripped)?;
+        stripped
+    } else {
+        input.to_path_buf()
+    };
+    let mut doc = open(&source)?;
+    let mut info = match doc.trailer.get(b"Info") {
+        Ok(Object::Reference(id)) => doc.get_object(*id).ok().and_then(|o| o.as_dict().ok()).cloned().unwrap_or_default(),
+        Ok(Object::Dictionary(d)) => d.clone(),
+        _ => Dictionary::new(),
+    };
+    for (key, value) in tags {
+        if value.trim().is_empty() {
+            info.remove(key.as_bytes());
+        } else {
+            // UTF-16BE with a BOM keeps any script readable.
+            let mut bytes = vec![0xFE, 0xFF];
+            bytes.extend(value.encode_utf16().flat_map(|u| u.to_be_bytes()));
+            info.set(key.as_bytes().to_vec(), Object::String(bytes, lopdf::StringFormat::Hexadecimal));
+        }
+    }
+    let id = doc.add_object(Object::Dictionary(info));
+    doc.trailer.set("Info", id);
+    save(&mut doc, out)
+}
+
 /// Number of colour components of an image colour space we can re-encode, if any.
 fn components(doc: &Document, cs: Option<&Object>) -> Option<u8> {
     let cs = cs?;

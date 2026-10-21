@@ -502,6 +502,347 @@ pub fn visualize(env: &Env, input: &Path, out: &Path, cancel: &Cancel, progress:
         .run(out, cancel, progress)
 }
 
+
+// ---------------------------------------------------------------- tools with options
+
+/// Change speed by `factor`. `keep_pitch` stretches the sound in time; otherwise it plays
+/// faster or slower like tape, higher or lower.
+#[allow(clippy::too_many_arguments)]
+pub fn change_speed_with(env: &Env, input: &Path, in_fmt: Format, out: &Path, factor: f64, keep_pitch: bool, cancel: &Cancel, progress: &mut dyn FnMut(f64)) -> Result<()> {
+    if !(0.1..=16.0).contains(&factor) {
+        return Err(Error::msg("Choose a speed between 0.1x and 16x."));
+    }
+    let p = probe_opt(env, input);
+    let mut ff = Ff::new(env)
+        .input(input)
+        .arg("-filter:v")
+        .arg(format!("setpts=PTS/{factor},{EVEN}"))
+        .args(["-map", "0:v:0"]);
+    if let Some(a) = &p.audio {
+        let filter = if keep_pitch {
+            atempo_chain(factor)
+        } else {
+            format!("asetrate={},aresample={}", (a.sample_rate as f64 * factor).round(), a.sample_rate)
+        };
+        ff = ff.args(["-map", "0:a:0", "-filter:a"]).arg(filter);
+    }
+    ff.args(video_codec_args(env, in_fmt)?)
+        .duration(p.duration.map(|d| d / factor))
+        .run(out, cancel, progress)
+}
+
+/// One full-resolution frame at `at` seconds, as the image `out` (PNG or JPG by extension).
+pub fn frame_to(env: &Env, input: &Path, at: f64, out: &Path, cancel: &Cancel) -> Result<()> {
+    let mut ff = Ff::new(env)
+        .arg("-ss")
+        .arg(format!("{:.3}", at.max(0.0)))
+        .input(input)
+        .args(["-map", "0:v:0", "-frames:v", "1", "-update", "1"]);
+    if out.extension().is_some_and(|e| e.eq_ignore_ascii_case("jpg") || e.eq_ignore_ascii_case("jpeg")) {
+        ff = ff.args(["-q:v", "2"]);
+    }
+    ff.run(out, cancel, &mut |_| {})
+}
+
+/// Frames at `times`: one image at `out`, or numbered images in the folder `out`.
+#[allow(clippy::too_many_arguments)]
+pub fn frames(env: &Env, input: &Path, times: &[f64], format: Format, out: &Path, stem: &str, cancel: &Cancel, progress: &mut dyn FnMut(f64)) -> Result<()> {
+    if times.is_empty() {
+        return Err(Error::msg("Choose at least one frame."));
+    }
+    if times.len() == 1 {
+        return frame_to(env, input, times[0], out, cancel);
+    }
+    std::fs::create_dir_all(out)?;
+    for (i, t) in times.iter().enumerate() {
+        cancel.check()?;
+        let file = out.join(format!("{stem} {:02}.{}", i + 1, format.extension()));
+        frame_to(env, input, *t, &file, cancel)?;
+        progress((i + 1) as f64 / times.len() as f64);
+    }
+    Ok(())
+}
+
+/// Split at `points` (seconds) into clips inside `out_dir`.
+#[allow(clippy::too_many_arguments)]
+pub fn split_at(env: &Env, input: &Path, in_fmt: Format, out_dir: &Path, stem: &str, points: &[f64], cancel: &Cancel, progress: &mut dyn FnMut(f64)) -> Result<Vec<PathBuf>> {
+    let p = probe(env, input)?;
+    let duration = p.duration.ok_or_else(|| Error::msg("Could not read the video duration."))?;
+    let mut cuts: Vec<f64> = points.iter().copied().filter(|t| *t > 0.05 && *t < duration - 0.05).collect();
+    cuts.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    cuts.dedup_by(|a, b| (*a - *b).abs() < 0.05);
+    if cuts.is_empty() {
+        return Err(Error::msg("Choose where to split the video."));
+    }
+    let mut bounds = vec![0.0];
+    bounds.extend(cuts);
+    bounds.push(duration);
+    let parts = bounds.len() - 1;
+    std::fs::create_dir_all(out_dir)?;
+    let mut outputs = Vec::new();
+    for i in 0..parts {
+        let (start, len) = (bounds[i], bounds[i + 1] - bounds[i]);
+        let out = out_dir.join(format!("{stem} {:02}.{}", i + 1, in_fmt.extension()));
+        let base = start / duration;
+        let mut ff = Ff::new(env)
+            .arg("-ss")
+            .arg(format!("{start:.3}"))
+            .input(input)
+            .arg("-t")
+            .arg(format!("{len:.3}"))
+            .args(["-map", "0:v:0", "-map", "0:a:0?", "-vf", EVEN])
+            .args(video_codec_args(env, in_fmt)?)
+            .duration(Some(len));
+        if in_fmt != Mkv {
+            ff = ff.args(["-avoid_negative_ts", "make_zero"]);
+        }
+        ff.run(&out, cancel, &mut |f| progress(base + f * len / duration))?;
+        outputs.push(out);
+    }
+    Ok(outputs)
+}
+
+/// Compress a video to about `target` bytes (H.264 at the bitrate that fits).
+pub fn compress_video_to(env: &Env, input: &Path, in_fmt: Format, out: &Path, target: u64, cancel: &Cancel, progress: &mut dyn FnMut(f64)) -> Result<()> {
+    let p = probe(env, input)?;
+    let duration = p.duration.filter(|d| *d > 0.1).ok_or_else(|| Error::msg("Could not read the video duration."))?;
+    let audio_kbps: i64 = if p.audio.is_some() { 96 } else { 0 };
+    let total_kbps = (target as f64 * 8.0 / 1000.0 / duration * 0.95) as i64;
+    let video_kbps = total_kbps - audio_kbps;
+    if video_kbps < 60 {
+        return Err(Error::msg("That size is too small for this video. Choose a larger one."));
+    }
+    let mut v: Vec<String> = if env.has_encoder("libx264") {
+        s(&["-c:v", "libx264", "-preset", "medium"])
+    } else if env.has_encoder("h264_mf") {
+        s(&["-c:v", "h264_mf", "-rate_control", "cbr"])
+    } else {
+        return Err(Error::msg("This ffmpeg build cannot encode H.264 video."));
+    };
+    v.extend([
+        "-b:v".to_string(),
+        format!("{video_kbps}k"),
+        "-maxrate".to_string(),
+        format!("{}k", video_kbps * 3 / 2),
+        "-bufsize".to_string(),
+        format!("{}k", video_kbps * 2),
+        "-pix_fmt".to_string(),
+        "yuv420p".to_string(),
+    ]);
+    let mut ff = Ff::new(env)
+        .input(input)
+        .args(["-map", "0:v:0", "-map", "0:a:0?", "-vf", EVEN])
+        .args(v)
+        .args(audio_codec_args(env, Mp4, 96)?)
+        .duration(Some(duration));
+    if in_fmt != Mkv {
+        ff = ff.args(["-movflags", "+faststart"]);
+    }
+    ff.run(out, cancel, progress)
+}
+
+/// Compress audio to about `target` bytes (MP3, M4A and the like, at the bitrate that fits).
+pub fn compress_audio_to(env: &Env, input: &Path, in_fmt: Format, out: &Path, target: u64, cancel: &Cancel, progress: &mut dyn FnMut(f64)) -> Result<()> {
+    if matches!(in_fmt, Wav | Flac | Aiff) {
+        return Err(Error::msg("Lossless audio can't be squeezed to a size; choose Balanced or Strong."));
+    }
+    let p = probe(env, input)?;
+    let duration = p.duration.filter(|d| *d > 0.1).ok_or_else(|| Error::msg("Could not read the audio duration."))?;
+    let kbps = (target as f64 * 8.0 / 1000.0 / duration * 0.97) as i64;
+    if kbps < 24 {
+        return Err(Error::msg("That size is too small for this audio. Choose a larger one."));
+    }
+    Ff::new(env)
+        .input(input)
+        .args(["-map", "0:a:0", "-vn", "-map_metadata", "0"])
+        .args(audio_codec_args(env, in_fmt, kbps.min(320) as u32)?)
+        .duration(Some(duration))
+        .run(out, cancel, progress)
+}
+
+/// Mono or stereo, with each side's volume (1.0 = unchanged).
+#[allow(clippy::too_many_arguments)]
+pub fn mix_channels(env: &Env, input: &Path, in_fmt: Format, out: &Path, stereo: bool, left: f64, right: f64, cancel: &Cancel, progress: &mut dyn FnMut(f64)) -> Result<()> {
+    let mono_in = probe_opt(env, input).audio.is_some_and(|a| a.channels == 1);
+    let pan = match (stereo, mono_in) {
+        (true, true) => format!("pan=stereo|c0={left:.3}*c0|c1={right:.3}*c0"),
+        (true, false) => format!("pan=stereo|c0={left:.3}*c0|c1={right:.3}*c1"),
+        (false, true) => format!("pan=mono|c0={:.3}*c0", (left + right) / 2.0),
+        (false, false) => format!("pan=mono|c0={:.3}*c0+{:.3}*c1", left * 0.5, right * 0.5),
+    };
+    audio_filter_tool(env, input, in_fmt, out, vec!["-af".into(), pan], cancel, progress)
+}
+
+/// MP4 of the audio with a `width` × `height` picture: a moving waveform, or a still one.
+#[allow(clippy::too_many_arguments)]
+pub fn visualize_with(env: &Env, input: &Path, out: &Path, width: u32, height: u32, still: bool, tmp: &Path, cancel: &Cancel, progress: &mut dyn FnMut(f64)) -> Result<()> {
+    let p = probe(env, input)?;
+    let (w, h) = (width.max(64) / 2 * 2, height.max(64) / 2 * 2);
+    if still {
+        let picture = crate::image::unique_in(tmp, "waveform.png");
+        Ff::new(env)
+            .input(input)
+            .arg("-filter_complex")
+            .arg(format!("[0:a:0]showwavespic=s={w}x{}:colors=0xFF7A1A:scale=sqrt,pad={w}:{h}:0:(oh-ih)/2:color=black[v]", h * 2 / 3 / 2 * 2))
+            .args(["-map", "[v]", "-frames:v", "1"])
+            .run(&picture, cancel, &mut |_| {})?;
+        let mut v = h264_args(env, 23)?;
+        if v.iter().any(|a| a == "libx264") {
+            v.extend(s(&["-tune", "stillimage"]));
+        }
+        return Ff::new(env)
+            .args(["-loop", "1", "-framerate", "2"])
+            .input(&picture)
+            .input(input)
+            .args(["-map", "0:v:0", "-map", "1:a:0"])
+            .args(v)
+            .args(audio_codec_args(env, Mp4, 192)?)
+            .args(["-shortest", "-movflags", "+faststart"])
+            .duration(p.duration)
+            .run(out, cancel, progress);
+    }
+    Ff::new(env)
+        .input(input)
+        .arg("-filter_complex")
+        .arg(format!("[0:a:0]showwaves=s={w}x{h}:mode=cline:rate=30:colors=0xFF7A1A:scale=sqrt,format=yuv420p[v]"))
+        .args(["-map", "[v]", "-map", "0:a:0"])
+        .args(h264_args(env, 23)?)
+        .args(audio_codec_args(env, Mp4, 192)?)
+        .args(["-shortest", "-movflags", "+faststart"])
+        .duration(p.duration)
+        .run(out, cancel, progress)
+}
+
+/// Set tags such as title and artist without re-encoding. `clear` removes all others first.
+#[allow(clippy::too_many_arguments)]
+pub fn set_tags(env: &Env, input: &Path, in_fmt: Format, out: &Path, clear: bool, tags: &[(String, String)], cancel: &Cancel, progress: &mut dyn FnMut(f64)) -> Result<()> {
+    let p = probe_opt(env, input);
+    let mut ff = Ff::new(env)
+        .input(input)
+        .args(["-map", "0", "-c", "copy", "-map_metadata", if clear { "-1" } else { "0" }]);
+    for (k, v) in tags {
+        ff = ff.arg("-metadata").arg(format!("{k}={v}"));
+    }
+    if matches!(in_fmt, Mp4 | Mov | M4a) {
+        ff = ff.args(["-movflags", "+faststart+use_metadata_tags"]);
+    }
+    if in_fmt == Mp3 {
+        ff = ff.args(["-id3v2_version", "3"]);
+    }
+    ff.duration(p.duration).run(out, cancel, progress)
+}
+
+/// The tags a file carries now (title, artist and so on), read with ffmpeg.
+pub fn read_tags(env: &Env, input: &Path) -> Vec<(String, String)> {
+    let Some(mut cmd) = env.ffmpeg_command() else { return Vec::new() };
+    cmd.args(["-hide_banner", "-nostdin", "-i"]).arg(input).args(["-f", "ffmetadata", "-"]);
+    let Ok((_, stdout, _)) = crate::process::capture(&mut cmd) else { return Vec::new() };
+    stdout
+        .lines()
+        .filter(|l| !l.starts_with(';') && !l.starts_with('['))
+        .filter_map(|l| l.split_once('='))
+        .map(|(k, v)| (k.trim().to_ascii_lowercase(), v.trim().to_string()))
+        .collect()
+}
+
+/// Keep `start`..`end` seconds of an audio or video file.
+pub fn trim(env: &Env, input: &Path, in_fmt: Format, out: &Path, start: f64, end: f64, cancel: &Cancel, progress: &mut dyn FnMut(f64)) -> Result<()> {
+    let len = end - start;
+    if len < 0.05 {
+        return Err(Error::msg("Choose a longer part to keep."));
+    }
+    let mut ff = Ff::new(env)
+        .arg("-ss")
+        .arg(format!("{:.3}", start.max(0.0)))
+        .input(input)
+        .arg("-t")
+        .arg(format!("{len:.3}"))
+        .args(["-map_metadata", "0"])
+        .duration(Some(len));
+    if in_fmt.category() == satsuma_core::Category::Video {
+        ff = ff.args(["-map", "0:v:0", "-map", "0:a:0?", "-vf", EVEN]).args(video_codec_args(env, in_fmt)?);
+        if in_fmt != Mkv {
+            ff = ff.args(["-avoid_negative_ts", "make_zero"]);
+        }
+    } else {
+        ff = ff.args(["-map", "0:a:0", "-vn"]).args(audio_codec_args(env, in_fmt, 192)?);
+    }
+    ff.run(out, cancel, progress)
+}
+
+/// Crop a video to a rectangle given as fractions of the picture.
+#[allow(clippy::too_many_arguments)]
+pub fn crop_video(env: &Env, input: &Path, in_fmt: Format, out: &Path, rect: (f64, f64, f64, f64), cancel: &Cancel, progress: &mut dyn FnMut(f64)) -> Result<()> {
+    let p = probe(env, input)?;
+    let (vw, vh) = p.video.ok_or_else(|| Error::msg("This file has no picture to crop."))?;
+    let even = |v: f64| ((v.round() as i64).max(2) / 2 * 2) as u32;
+    let (x, y) = (even(rect.0 * vw as f64), even(rect.1 * vh as f64));
+    let w = even(rect.2 * vw as f64).min(vw - x);
+    let h = even(rect.3 * vh as f64).min(vh - y);
+    if w < 16 || h < 16 {
+        return Err(Error::msg("The crop is too small."));
+    }
+    Ff::new(env)
+        .input(input)
+        .args(["-map", "0:v:0", "-map", "0:a:0?", "-map_metadata", "0", "-vf"])
+        .arg(format!("crop={w}:{h}:{x}:{y}"))
+        .args(video_codec_args(env, in_fmt)?)
+        .duration(p.duration)
+        .run(out, cancel, progress)
+}
+
+/// Silence the given ranges (seconds), or cover them with a beep.
+#[allow(clippy::too_many_arguments)]
+pub fn bleep(env: &Env, input: &Path, in_fmt: Format, out: &Path, ranges: &[(f64, f64)], tone: bool, cancel: &Cancel, progress: &mut dyn FnMut(f64)) -> Result<()> {
+    if ranges.is_empty() {
+        return Err(Error::msg("Mark at least one part to bleep."));
+    }
+    let p = probe_opt(env, input);
+    let rate = p.audio.as_ref().map(|a| a.sample_rate).unwrap_or(48_000);
+    let any = ranges.iter().map(|(a, b)| format!("between(t,{a:.3},{b:.3})")).collect::<Vec<_>>().join("+");
+    let graph = if tone {
+        format!(
+            "[0:a:0]volume=enable='{any}':volume=0[m];sine=f=1000:sample_rate={rate},volume=0.3,volume=enable='not({any})':volume=0[b];[m][b]amix=inputs=2:duration=first:normalize=0[a]"
+        )
+    } else {
+        format!("[0:a:0]volume=enable='{any}':volume=0[a]")
+    };
+    Ff::new(env)
+        .input(input)
+        .arg("-filter_complex")
+        .arg(graph)
+        .args(["-map", "[a]", "-vn", "-map_metadata", "0"])
+        .args(audio_codec_args(env, in_fmt, 192)?)
+        .duration(p.duration)
+        .run(out, cancel, progress)
+}
+
+/// Loudness peaks for drawing a waveform: `count` values, 0–1.
+pub fn peaks(env: &Env, input: &Path, count: usize) -> Result<Vec<f32>> {
+    let mut cmd = env.ffmpeg_command().ok_or_else(|| Error::msg(FFMPEG_MISSING))?;
+    cmd.args(["-hide_banner", "-loglevel", "error", "-nostdin", "-i"])
+        .arg(input)
+        .args(["-map", "0:a:0", "-ac", "1", "-ar", "4000", "-f", "s16le", "-"])
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null());
+    crate::process::hide_console(&mut cmd);
+    let output = cmd.output()?;
+    let samples: Vec<i16> = output.stdout.chunks_exact(2).map(|b| i16::from_le_bytes([b[0], b[1]])).collect();
+    if samples.is_empty() || count == 0 {
+        return Err(Error::msg("This file has no sound to show."));
+    }
+    let per = (samples.len() as f64 / count as f64).max(1.0);
+    let mut out = Vec::with_capacity(count);
+    for k in 0..count {
+        let a = (k as f64 * per) as usize;
+        let b = (((k + 1) as f64 * per) as usize).min(samples.len()).max(a + 1);
+        let peak = samples[a.min(samples.len() - 1)..b].iter().map(|v| v.unsigned_abs()).max().unwrap_or(0);
+        out.push(peak as f32 / 32768.0);
+    }
+    let top = out.iter().cloned().fold(0.0f32, f32::max).max(0.001);
+    Ok(out.into_iter().map(|v| (v / top).sqrt()).collect())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
