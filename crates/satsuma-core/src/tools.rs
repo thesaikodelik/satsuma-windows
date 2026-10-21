@@ -181,7 +181,7 @@ impl Tool {
 
     /// Interactive tools whose editor window Satsuma has.
     pub fn has_editor(self) -> bool {
-        matches!(self, Tool::CropImage | Tool::FrameImage | Tool::EditImage | Tool::TrimVideo | Tool::CropVideo | Tool::OrganizePdf | Tool::RedactAudio)
+        matches!(self, Tool::CropImage | Tool::FrameImage | Tool::EditImage | Tool::TrimVideo | Tool::CropVideo | Tool::OrganizePdf | Tool::RedactAudio | Tool::AnnotateImage)
     }
 
     /// Output format for a given input format, or `None` when the tool writes a folder.

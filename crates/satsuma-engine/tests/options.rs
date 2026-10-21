@@ -222,3 +222,19 @@ fn organize_pdf_pages() {
     assert_eq!(rot(pages[2]), 0);
     assert_ne!(pages[1], pages[2]);
 }
+
+#[test]
+fn annotate_draws_over_the_photo() {
+    let dir = tempfile::tempdir().unwrap();
+    let photo = dir.path().join("photo.jpg");
+    image::RgbImage::from_pixel(400, 300, image::Rgb([240, 240, 240])).save(&photo).unwrap();
+    let svg = r##"<svg xmlns="http://www.w3.org/2000/svg" width="400" height="300" viewBox="0 0 400 300"><rect x="50" y="50" width="100" height="80" fill="none" stroke="#ff0000" stroke-width="10"/><text x="200" y="200" font-size="40" fill="#0000ff">Hi</text></svg>"##;
+    let out = apply(&[photo], Tool::AnnotateImage, ToolOptions::Annotate { svg: svg.into() });
+    assert_eq!(out.extension().unwrap(), "png");
+    let img = image::open(&out).unwrap().to_rgba8();
+    assert_eq!(img.dimensions(), (400, 300));
+    let p = img.get_pixel(50, 90).0;
+    assert!(p[0] > 200 && p[1] < 60, "{p:?}");
+    let blue = img.pixels().filter(|p| p.0[2] > 200 && p.0[0] < 80).count();
+    assert!(blue > 50, "the text was drawn: {blue}");
+}

@@ -48,7 +48,7 @@ pub fn asks(tool: Tool, files: &[PathBuf]) -> bool {
     match tool {
         Tool::ChangeVideoSpeed | Tool::VideoSnapshots | Tool::SplitVideo | Tool::Compress | Tool::AudioChannels | Tool::AudioToVideo | Tool::CreateCollage => true,
         Tool::RemoveMetadata => matches!(fmt.category(), Category::Audio | Category::Video) || fmt == Format::Pdf,
-        Tool::TrimVideo | Tool::TrimAudio | Tool::CropVideo | Tool::OrganizePdf | Tool::RedactAudio => true,
+        Tool::TrimVideo | Tool::TrimAudio | Tool::CropVideo | Tool::OrganizePdf | Tool::RedactAudio | Tool::AnnotateImage => true,
         _ => false,
     }
 }
@@ -78,6 +78,7 @@ pub fn form_for(tool: Tool, files: &[PathBuf]) -> Option<Box<dyn Form>> {
         Tool::CropVideo => Box::new(super::cropvideo::CropVideo::new(files)?),
         Tool::OrganizePdf => Box::new(super::pages::Pages::new(files)?),
         Tool::RedactAudio => Box::new(super::bleep::Bleep::new(files)?),
+        Tool::AnnotateImage => Box::new(super::annotate::Annotate::new(files)?),
         _ => return None,
     })
 }

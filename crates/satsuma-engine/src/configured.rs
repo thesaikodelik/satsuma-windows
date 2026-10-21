@@ -2,7 +2,7 @@
 
 use crate::plan::{Job, ToolOptions};
 use crate::run::Context;
-use crate::{image, media, pdf, Error, Result};
+use crate::{image, imaging, media, pdf, Error, Result};
 use satsuma_core::naming::stem_of;
 use satsuma_core::settings::Strength;
 use satsuma_core::{Category, Format, Tool};
@@ -42,6 +42,13 @@ pub(crate) fn execute(ctx: &Context, job: &Job, tool: Tool, options: &ToolOption
         (Tool::CropVideo, ToolOptions::CropVideo { x, y, w, h }) => media::crop_video(env, input, fmt, out, (*x, *y, *w, *h), cancel, progress),
         (Tool::RedactAudio, ToolOptions::Bleep { ranges, tone }) => media::bleep(env, input, fmt, out, ranges, *tone, cancel, progress),
         (Tool::OrganizePdf, ToolOptions::Pages { pages }) => pdf::organize(input, out, pages),
+        (Tool::AnnotateImage, ToolOptions::Annotate { svg }) => {
+            let img = imaging::load(input)?;
+            progress(0.3);
+            let marked = imaging::overlay_svg(&img, svg)?;
+            progress(0.7);
+            imaging::write(&marked, out, Format::Png)
+        }
         _ => Err(Error::msg(format!("{} can't use these options.", tool.info().name))),
     }
 }

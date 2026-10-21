@@ -219,6 +219,37 @@ pub fn uti(format: Format) -> Option<&'static str> {
     })
 }
 
+fn fonts() -> Arc<resvg::usvg::fontdb::Database> {
+    static FONTS: std::sync::OnceLock<Arc<resvg::usvg::fontdb::Database>> = std::sync::OnceLock::new();
+    FONTS
+        .get_or_init(|| {
+            let mut db = resvg::usvg::fontdb::Database::new();
+            db.load_system_fonts();
+            db.set_sans_serif_family("Segoe UI");
+            Arc::new(db)
+        })
+        .clone()
+}
+
+/// Renders `svg` (whose view box is in the image's pixels) at `w`×`h`, as straight RGBA.
+pub fn render_svg(svg: &str, w: u32, h: u32) -> Result<RgbaImage> {
+    let opts = resvg::usvg::Options { fontdb: fonts(), ..Default::default() };
+    let tree = resvg::usvg::Tree::from_str(svg, &opts).map_err(|e| Error::msg(format!("Could not draw the marks: {e}.")))?;
+    let mut pm = Pixmap::new(w.max(1), h.max(1)).ok_or_else(|| Error::msg("The image is too large."))?;
+    let size = tree.size();
+    let t = Transform::from_scale(w as f32 / size.width(), h as f32 / size.height());
+    resvg::render(&tree, t, &mut pm.as_mut());
+    Ok(from_pixmap(&pm))
+}
+
+/// `img` with the marks of `svg` (in the image's pixels) drawn over it.
+pub fn overlay_svg(img: &RgbaImage, svg: &str) -> Result<Image> {
+    let marks = render_svg(svg, img.width(), img.height())?;
+    let mut out = img.clone();
+    image::imageops::overlay(&mut out, &marks, 0, 0);
+    Ok(Arc::new(out))
+}
+
 /// Writes `img` in `format` (not WebP; see `run.rs`).
 pub fn write(img: &RgbaImage, path: &Path, format: Format) -> Result<()> {
     uti(format).ok_or_else(|| Error::msg(format!("Cannot save {} images here.", format.label())))?;

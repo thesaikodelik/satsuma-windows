@@ -149,7 +149,7 @@ mod tests {
         assert!(!conversion_available(&env, Pdf, Xlsx));
         assert!(tool_available(&env, Tool::MergePdf, Pdf));
         assert!(!tool_available(&env, Tool::NormalizeAudio, Mp3));
-        assert!(!tool_available(&env, Tool::AnnotateImage, Jpg));
+        assert!(tool_available(&env, Tool::AnnotateImage, Jpg));
         assert!(tool_available(&env, Tool::EditImage, Jpg));
         assert!(tool_available(&env, Tool::CropImage, Jpg));
         assert!(tool_available(&env, Tool::FrameImage, Heic));
