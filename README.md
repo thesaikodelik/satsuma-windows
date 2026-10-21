@@ -34,43 +34,52 @@ sonatina-dream, rebuilt natively for Windows 11 with a *Liquid Glass* look of it
 
 <p align="center"><img src="docs/media/highlights.png" width="100%" alt="Every format, one tap, private, updates itself"></p>
 
+<p align="center">
+  <a href="#-how-it-works">How it works</a> ·
+  <a href="#-what-it-converts">What it converts</a> ·
+  <a href="#-tools">Tools</a> ·
+  <a href="#-look-and-settings">Look and settings</a> ·
+  <a href="#-install">Install</a> ·
+  <a href="#-always-up-to-date">Updates</a> ·
+  <a href="#-private-by-design">Privacy</a>
+</p>
+
 ---
 
-## 🎡 Three wheels, one gesture
-
-<table>
-  <tr>
-    <td width="33%" align="center"><img src="docs/media/wheel-convert.png" alt="The Convert wheel for a JPG, with WEBP lit and its size, 15 KB, in the hub"></td>
-    <td width="33%" align="center"><img src="docs/media/wheel-tools.png" alt="The Tools wheel for a photo, with Annotate lit"></td>
-    <td width="33%" align="center"><img src="docs/media/wheel-actions.png" alt="The Actions wheel, with Copy lit"></td>
-  </tr>
-  <tr>
-    <td><b>Shift: Convert.</b> Every format this file can become. The hub shows the result's size before you drop.</td>
-    <td><b>Ctrl: Tools.</b> Compress, trim, crop, edit, annotate, redact, organize pages, edit tags and more.</td>
-    <td><b>Alt: Actions.</b> Share, Float, Copy, Move, Copy Path and open a Terminal there.</td>
-  </tr>
-</table>
+## 🎡 How it works
 
 1. **Start dragging** one or more files, from File Explorer, the desktop or any app.
 2. **Tap a key once** while you hold the click. Tap another key to switch wheels.
 3. **Drop on a petal.** Drop in the middle to cancel.
 
-<img src="docs/media/wheel-progress.png" align="right" width="230" alt="The wheel converting a video to WebM: a thin orange ring of light fills along its edge and the hub shows 45%">
+<table>
+  <tr>
+    <td width="33%"><img src="docs/media/wheel-convert.png" width="100%" alt="The Convert wheel for a JPG, with WEBP lit and its size, 15 KB, in the hub"></td>
+    <td width="33%"><img src="docs/media/wheel-tools.png" width="100%" alt="The Tools wheel for a photo, with Annotate lit"></td>
+    <td width="33%"><img src="docs/media/wheel-actions.png" width="100%" alt="The Actions wheel, with Copy lit"></td>
+  </tr>
+  <tr>
+    <td valign="top"><b>Shift: Convert.</b> Every format this file can become. The hub shows the result's size before you drop.</td>
+    <td valign="top"><b>Ctrl: Tools.</b> Compress, trim, crop, edit, annotate, redact, organize pages, edit tags and more.</td>
+    <td valign="top"><b>Alt: Actions.</b> Share, Float, Copy, Move, Copy Path and open a Terminal there.</td>
+  </tr>
+</table>
 
-**The wheel shows the work.** After you drop, the wheel stays where it is: a thin ring of light
-fills along its edge, and the hub counts the percent. Hover the hub to **Cancel**; a tick shows when
-it's done.
+### The wheel shows the work
 
-When there's no wheel to show it on (a job started from a tool window, or one still running when you
-start a new drag), a small panel shows the progress instead, and its **×** cancels the job. If
-something goes wrong, the panel says what:
-
-<img src="docs/media/hud.png" width="380" alt="The small panel after Change Speed: Saved Lakes Speed 2x.mp4">
+<table>
+  <tr>
+    <td width="50%"><img src="docs/media/wheel-progress.png" width="100%" alt="The wheel converting a video to WebM: a thin orange ring of light fills along its edge and the hub shows 45%"></td>
+    <td width="50%"><img src="docs/media/hud.png" width="100%" alt="The small panel after Change Speed: Saved Lakes Speed 2x.mp4"></td>
+  </tr>
+  <tr>
+    <td valign="top">After you drop, the wheel stays put: a thin <b>ring of light</b> fills along its edge and the hub counts the percent. Hover the hub to <b>Cancel</b>; a tick shows when it's done.</td>
+    <td valign="top">When there's no wheel to show it on (a job from a tool window, or one still running when you start a new drag), a <b>small panel</b> shows the progress instead. Its <b>×</b> cancels, and it tells you if something goes wrong.</td>
+  </tr>
+</table>
 
 No drag handy? **Convert Files…** in Satsuma's menu opens the same wheel for files you pick; arrow
 keys move around it, Enter applies.
-
-<br clear="right">
 
 ## 🔁 What it converts
 
@@ -86,149 +95,161 @@ keys move around it, Enter applies.
 | 💬 **Subtitles**: SRT, VTT | each other or TXT |
 | 🗜 **Archives**: ZIP, TAR, GZ, RAR | ZIP, TAR or GZ; or **Extract** them |
 
-<img src="docs/media/wheel-convert-pdf.png" align="right" width="230" alt="The Convert wheel for a PDF, with PPTX lit and its size, 1.3 MB, in the hub">
-
 - **PDF → PowerPoint** puts each page on its own slide.
 - **PDF → Excel** reads the pages, scanned ones too, and lays the text out in rows and columns.
 - **Slides → PDF** uses Microsoft PowerPoint, or LibreOffice when there's no PowerPoint.
 
-Audio and video use [ffmpeg](https://ffmpeg.org): `winget install Gyan.FFmpeg`. ffmpeg also brings
-WebP and AVIF output, PNG compression and collages. HEIC output needs the HEIF and HEVC extensions
-from the Microsoft Store. Everything else works out of the box, and petals your PC can't do yet
-are simply hidden.
-
-<br clear="right">
+> **What needs extra software:** audio and video use [ffmpeg](https://ffmpeg.org)
+> (`winget install Gyan.FFmpeg`), which also brings WebP and AVIF output, PNG compression and
+> collages. HEIC output needs the HEIF and HEVC extensions from the Microsoft Store. Everything else
+> works out of the box, and petals your PC can't do yet are simply hidden.
 
 ## 🧰 Tools
 
-Many tools open a small window first, so you choose exactly what happens. Everything below runs on
-your PC.
+Many tools open a small window first, so you choose exactly what happens.
 
 ### 🖼 Photos
 
 <table>
   <tr>
-    <td width="50%"><img src="docs/media/tool-annotate.png" alt="Annotate Photo: an arrow, an ellipse, two numbered markers and the words Swim here! on a lake"></td>
-    <td width="50%"><img src="docs/media/tool-redact-photo.png" alt="Redact Photo: the Wi-Fi password on a cabin card is blurred, the network name is not"></td>
+    <td width="50%"><img src="docs/media/tool-annotate.png" width="100%" alt="Annotate Photo: an arrow, an ellipse, two numbered markers and the words Swim here! on a lake"></td>
+    <td width="50%"><img src="docs/media/tool-redact-photo.png" width="100%" alt="Redact Photo: the Wi-Fi password on a cabin card is blurred, the network name is not"></td>
   </tr>
   <tr>
-    <td><b>Annotate</b>: arrows, boxes, ellipses, lines, highlights, text and numbered markers, in seven colours and three sizes.</td>
-    <td><b>Redact</b>: blur, pixelate or black out what you mark. <b>Find Text</b> and <b>Find Faces</b> mark them for you.</td>
+    <td valign="top"><b>Annotate</b>: arrows, boxes, ellipses, lines, highlights, text and numbered markers, in seven colours and three sizes.</td>
+    <td valign="top"><b>Redact</b>: blur, pixelate or black out what you mark. <b>Find Text</b> and <b>Find Faces</b> mark them for you.</td>
   </tr>
 </table>
 
 <table>
   <tr>
-    <td width="33%"><img src="docs/media/editor-crop.png" alt="Crop Image with aspect ratio presets and exact size fields"></td>
-    <td width="33%"><img src="docs/media/editor-background.png" alt="Add Background with gradients, colours, padding, corners, shadow and ratio"></td>
-    <td width="33%"><img src="docs/media/editor-edit.png" alt="Edit Photo with Light, Color, Detail and Effects adjustments"></td>
+    <td width="33%"><img src="docs/media/editor-crop.png" width="100%" alt="Crop Image with aspect ratio presets and exact size fields"></td>
+    <td width="33%"><img src="docs/media/editor-background.png" width="100%" alt="Add Background with gradients, colours, padding, corners, shadow and ratio"></td>
+    <td width="33%"><img src="docs/media/editor-edit.png" width="100%" alt="Edit Photo with Light, Color, Detail and Effects adjustments"></td>
   </tr>
   <tr>
-    <td align="center"><sub><b>Crop Image</b>: presets or an exact size</sub></td>
-    <td align="center"><sub><b>Add Background</b>: gradients, colours or your own image</sub></td>
-    <td align="center"><sub><b>Edit Photo</b>: 20 adjustments with a live preview</sub></td>
+    <td valign="top"><b>Crop Image</b>: presets or an exact size.</td>
+    <td valign="top"><b>Add Background</b>: gradients, colours or your own image.</td>
+    <td valign="top"><b>Edit Photo</b>: 20 adjustments with a live preview.</td>
   </tr>
 </table>
 
-Also: **Compress** (to a strength or a size, with a longest edge), **Remove Metadata** (camera and
-GPS details), and for several photos **Create PDF** and **Collage** (grid, row or column, with
-spacing and a background colour).
+Also **Compress** (to a strength or a size, with a longest edge) and **Remove Metadata** (camera and
+GPS details). For several photos: **Create PDF** and **Collage** (grid, row or column, with spacing
+and a background colour).
 
 ### 🎬 Video
 
 <table>
   <tr>
-    <td width="33%"><img src="docs/media/tool-trim-video.png" alt="Trim Video: start and end handles on a filmstrip of lake scenes, keeping 0:03 to 0:14"></td>
-    <td width="33%"><img src="docs/media/tool-crop-video.png" alt="Crop Video: a 9:16 box over a lake scene"></td>
-    <td width="33%"><img src="docs/media/tool-redact-video.png" alt="Redact Video: the sun pixelated from 0:04 to 0:14"></td>
+    <td width="33%"><img src="docs/media/tool-trim-video.png" width="100%" alt="Trim Video: start and end handles on a filmstrip of lake scenes, keeping 0:03 to 0:14"></td>
+    <td width="33%"><img src="docs/media/tool-crop-video.png" width="100%" alt="Crop Video: a 9:16 box over a lake scene"></td>
+    <td width="33%"><img src="docs/media/tool-redact-video.png" width="100%" alt="Redact Video: the sun pixelated from 0:04 to 0:14"></td>
   </tr>
   <tr>
-    <td><b>Trim</b>: drag the handles on the filmstrip, with a large preview, or type exact times.</td>
-    <td><b>Crop</b>: drag the box, or pick 16:9, 9:16, 1:1, 4:3 or 4:5.</td>
-    <td><b>Redact</b>: blur, pixelate or black out boxes, for the whole clip or just part of it.</td>
+    <td valign="top"><b>Trim</b>: drag the handles on the filmstrip, with a large preview, or type exact times.</td>
+    <td valign="top"><b>Crop</b>: drag the box, or pick 16:9, 9:16, 1:1, 4:3 or 4:5.</td>
+    <td valign="top"><b>Redact</b>: blur, pixelate or black out boxes, for the whole clip or just part of it.</td>
   </tr>
 </table>
 
 <table>
   <tr>
-    <td width="50%"><img src="docs/media/tool-speed.png" alt="Change Video Speed: 2× with the pitch kept; 0:20 becomes 0:10"></td>
-    <td width="50%"><img src="docs/media/tool-compress.png" alt="Compress to a size: 5.6 MB now, about 2.8 MB after"></td>
+    <td width="50%"><img src="docs/media/tool-speed.png" width="100%" alt="Change Video Speed: 2× with the pitch kept; 0:20 becomes 0:10"></td>
+    <td width="50%"><img src="docs/media/tool-compress.png" width="100%" alt="Compress to a size: 5.6 MB now, about 2.8 MB after"></td>
   </tr>
   <tr>
-    <td><b>Speed</b>: 0.25× to 4×, keeping the pitch of the voice if you like.</td>
-    <td><b>Compress</b>: Balanced, Strong, or <b>to a size</b> that fits where you're sending it.</td>
+    <td valign="top"><b>Speed</b>: 0.25× to 4×, keeping the pitch of the voice if you like.</td>
+    <td valign="top"><b>Compress</b>: Balanced, Strong, or <b>to a size</b> that fits where you're sending it.</td>
   </tr>
 </table>
 
-Also: **Snapshots** (1 to 30 frames spread through the clip, PNG or JPG), **Split** (into equal
-parts or clips of a set length), **Mute**, **Edit Metadata**, and for several clips **Join**. Video
-tools work on MP4, MOV and MKV; convert other videos to one of those first.
+Also **Snapshots** (1 to 30 frames spread through the clip, PNG or JPG), **Split** (into equal parts
+or clips of a set length), **Mute** and **Edit Metadata**. For several clips: **Join**. Video tools
+work on MP4, MOV and MKV; convert other videos to one of those first.
 
 ### 🎵 Audio
 
 <table>
   <tr>
-    <td width="50%"><img src="docs/media/tool-bleep.png" alt="Bleep Audio: two parts of a voice note marked on the waveform, where a phone number is said"></td>
-    <td width="50%"><img src="docs/media/tool-metadata.png" alt="Edit Metadata: title, artist, album, year, genre and comment of a voice note"></td>
+    <td width="33%"><img src="docs/media/tool-bleep.png" width="100%" alt="Bleep Audio: two parts of a voice note marked on the waveform, where a phone number is said"></td>
+    <td width="33%"><img src="docs/media/tool-metadata.png" width="100%" alt="Edit Metadata: title, artist, album, year, genre and comment of a voice note"></td>
+    <td width="33%"><img src="docs/media/tool-visualize.png" width="100%" alt="Audio to Video: landscape, portrait or square, with a moving or still waveform"></td>
   </tr>
   <tr>
-    <td><b>Bleep</b>: mark parts on the waveform; they get a beep or silence.</td>
-    <td><b>Edit Metadata</b>: title, artist, album, year, genre and comment, or remove everything.</td>
+    <td valign="top"><b>Bleep</b>: mark parts on the waveform; they get a beep or silence.</td>
+    <td valign="top"><b>Edit Metadata</b>: title, artist, album, year, genre and comment, or remove everything.</td>
+    <td valign="top"><b>Audio → Video</b>: landscape, portrait or square, with a moving or still waveform.</td>
   </tr>
 </table>
 
-<img src="docs/media/tool-visualize.png" align="right" width="46%" alt="Audio to Video: landscape, portrait or square, with a moving or still waveform">
-
-Also: **Trim** on the waveform (or just cut the silence at both ends), **Mono / Stereo** with the
-volume of each side, **Normalize**, **Compress** and **Audio → Video** (landscape, portrait or
-square, with a moving or still waveform). Audio tools work on MP3, M4A, WAV and FLAC.
-
-<br clear="right">
+Also **Trim** on the waveform (or just cut the silence at both ends), **Mono / Stereo** with the
+volume of each side, **Normalize** and **Compress**. Audio tools work on MP3, M4A, WAV and FLAC.
 
 ### 📄 PDF
 
-<img src="docs/media/tool-organize.png" align="right" width="46%" alt="Organize PDF: six journal pages as thumbnails, page 6 moved up and page 4 turned 90°">
+<table>
+  <tr>
+    <td width="50%"><img src="docs/media/tool-organize.png" width="100%" alt="Organize PDF: six journal pages as thumbnails, page 6 moved up and page 4 turned 90°"></td>
+    <td width="50%"><img src="docs/media/wheel-convert-pdf.png" width="100%" alt="The Convert wheel for a PDF, with PPTX lit and its size, 1.3 MB, in the hub"></td>
+  </tr>
+  <tr>
+    <td valign="top"><b>Organize Pages</b>: every page as a thumbnail. Drag pages into a new order, turn them, duplicate or delete them, then save.</td>
+    <td valign="top"><b>Convert</b> to Word, PowerPoint, Excel, images, EPUB, text or Markdown.</td>
+  </tr>
+</table>
 
-**Organize Pages**: every page as a thumbnail. Drag pages into a new order, turn them, duplicate or
-delete them, then save.
-
-Also: **Compress**, **Split**, **Edit Info** (title, author, subject and keywords), and for several
-PDFs **Merge**.
-
-<br clear="right">
+Also **Compress**, **Split** and **Edit Info** (title, author, subject and keywords). For several
+PDFs: **Merge**.
 
 ### 📌 Float
 
-<img src="docs/media/float.png" align="right" width="110" alt="The Float shelf holding Sunset.jpg">
+<table>
+  <tr>
+    <td width="130"><img src="docs/media/float.png" width="110" alt="The Float shelf holding Sunset.jpg"></td>
+    <td><b>Float</b> keeps files at hand in a small shelf that stays on top; drag them out again into any app when you need them. Send files to it from the Actions wheel.</td>
+  </tr>
+</table>
 
-**Float** keeps files at hand in a small shelf that stays on top; drag them out again into any app
-when you need them.
-
-<br clear="right">
-
-## 🎨 Liquid Glass
-
-<img src="docs/media/settings-appearance.png" align="right" width="42%" alt="Settings: Appearance, with the wheel preview, Liquid and Solid themes and the transparency slider">
+## 🎨 Look and settings
 
 - **Liquid**: frosted glass that blurs whatever is behind it, with a highlight that flows like
   liquid from petal to petal as you move.
 - **Solid**: an opaque wheel in Windows' light or dark colours.
 - A **Transparency** slider for both, and a live preview to try them on.
 
-<br clear="right">
+<table>
+  <tr>
+    <td width="25%"><img src="docs/media/settings-appearance.png" width="100%" alt="Settings: Appearance, with the wheel preview, Liquid and Solid themes and the transparency slider"></td>
+    <td width="25%"><img src="docs/media/settings-general.png" width="100%" alt="Settings: General"></td>
+    <td width="25%"><img src="docs/media/shortcuts.gif" width="100%" alt="Settings: Shortcuts, with the animated how-to"></td>
+    <td width="25%"><img src="docs/media/settings-files.png" width="100%" alt="Settings: Files"></td>
+  </tr>
+  <tr>
+    <td valign="top"><b>Appearance</b>: theme and transparency.</td>
+    <td valign="top"><b>General</b>: terminal app, Float, start at sign-in.</td>
+    <td valign="top"><b>Shortcuts</b>: the key for each wheel.</td>
+    <td valign="top"><b>Files</b>: compression, image size, video parts.</td>
+  </tr>
+</table>
 
-## ⚙️ Make it yours
+## 📦 Install
 
 <table>
   <tr>
-    <td width="33%"><img src="docs/media/settings-general.png" alt="Settings: General"></td>
-    <td width="33%"><img src="docs/media/shortcuts.gif" alt="Settings: Shortcuts, with the animated how-to"></td>
-    <td width="33%"><img src="docs/media/settings-files.png" alt="Settings: Files"></td>
-  </tr>
-  <tr>
-    <td align="center"><sub><b>General</b>: terminal app, Float, start at sign-in</sub></td>
-    <td align="center"><sub><b>Shortcuts</b>: pick the key for each wheel</sub></td>
-    <td align="center"><sub><b>Files</b>: compression strength, image size, video parts</sub></td>
+    <td width="50%" valign="top">
+
+1. Download **[Satsuma-Setup.exe](https://github.com/thesaikodelik/satsuma-windows/releases/latest/download/Satsuma-Setup.exe)**.
+2. Run it and click **Install**. It installs just for you, **no administrator rights needed**.
+3. Satsuma's citrus icon appears at the right end of the taskbar (it may be under the **^**).
+
+New apps can get *"Windows protected your PC"* until they're widely downloaded. Choose
+**More info → Run anyway**. Satsuma is open source: read every line, or build it yourself.
+
+Uninstall from **Settings → Apps**. You can keep your settings.
+
+</td>
+    <td width="50%"><img src="docs/media/setup-welcome.png" width="100%" alt="Satsuma Setup: version 1.1.0, start at sign-in, desktop shortcut and the Install button"></td>
   </tr>
 </table>
 
@@ -240,28 +261,8 @@ ready, the middle of the wheel says **Update ready**:
 - **Drop your files there** and Satsuma updates and restarts right away, or
 - do nothing: it updates itself the moment it's idle and comes back on the new version.
 
-You can also check yourself in *Settings › About*.
-
-## 📦 Install
-
-<img src="docs/media/setup-welcome.png" align="right" width="50%" alt="Satsuma Setup">
-
-1. Download **[Satsuma-Setup.exe](https://github.com/thesaikodelik/satsuma-windows/releases/latest/download/Satsuma-Setup.exe)**.
-2. Run it and click **Install**. It installs just for you, **no administrator rights needed**.
-3. Satsuma's citrus icon appears at the right end of the taskbar (it may be under the **^**).
-
-> New apps can get *"Windows protected your PC"* until they're widely downloaded. Choose
-> **More info → Run anyway**. Satsuma is open source: read every line, or build it yourself.
-
-Uninstall from **Settings → Apps**. You can keep your settings.
-
-<br clear="right">
-
-## 🗂 What's new
-
-The newest version, its files and **everything that changed in every version so far** are on the
-**[latest release](https://github.com/thesaikodelik/satsuma-windows/releases/latest)**. You only ever
-need that one; Satsuma updates itself after that.
+You can also check yourself in *Settings › About*. Every version and everything that changed in it
+is on the **[latest release](https://github.com/thesaikodelik/satsuma-windows/releases/latest)**.
 
 ## 🔒 Private by design
 
