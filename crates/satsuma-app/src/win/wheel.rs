@@ -219,15 +219,13 @@ pub fn paint(p: &Painter, m: &WheelModel, pal: &Palette, behind: Option<&Behind>
         p.fill_round_rect_image(disc, backdrop, (0.0, 0.0, size, size), px, *w, *h);
     }
     if let (true, Some(w)) = (pal.glass, &m.work) {
-        paint_work_light(p, w, c, &g, false);
+        paint_work_light(p, w, c, &g, false, false);
     }
     // On a glass window (the Settings preview) the window's tint is the disc's tint already.
     if !(pal.glass && m.on_glass_window) {
         p.fill_circle(c, c, backdrop, pal.backdrop);
     }
-    if let (false, Some(w)) = (pal.glass, &m.work) {
-        paint_work_light(p, w, c, &g, false);
-    }
+
     if pal.glass {
         // 30nama's drawn glass: a faint body, a glare from above and a lit rim.
         p.fill_circle(c, c, backdrop, white(0.02));
@@ -244,7 +242,7 @@ pub fn paint(p: &Painter, m: &WheelModel, pal: &Palette, behind: Option<&Behind>
         return;
     }
     if let Some(w) = &m.work {
-        paint_work_light(p, w, c, &g, true);
+        paint_work_light(p, w, c, &g, true, !pal.glass);
     }
     let n = m.items.len();
     let dense = n > 6;
@@ -360,8 +358,9 @@ pub fn paint(p: &Painter, m: &WheelModel, pal: &Palette, behind: Option<&Behind>
 /// glass, from the top, clockwise. Drawn before the glass, so the tint, the petals and the
 /// glare lie over it and it glows through, soft. When the circle closes the job is done:
 /// the light swells once, and a check draws itself in the hub.
-fn paint_work_light(p: &Painter, w: &Work, c: f32, g: &WheelGeometry, over_glass: bool) {
-    let ring = (g.outer + 1.5) as f32;
+fn paint_work_light(p: &Painter, w: &Work, c: f32, g: &WheelGeometry, over_glass: bool, solid: bool) {
+    // On the rim, clear of the petals.
+    let ring = (g.backdrop - 0.6) as f32;
     let f = w.shown.clamp(0.0, 1.0);
     if f <= 0.0 {
         return;
@@ -369,15 +368,20 @@ fn paint_work_light(p: &Painter, w: &Work, c: f32, g: &WheelGeometry, over_glass
     let swell = w.done.map(|d| (d.elapsed().as_secs_f32() / 0.5).min(1.0)).unwrap_or(0.0);
     let boost = 1.0 + 0.5 * (swell * std::f32::consts::PI).sin();
     let colour = |alpha: f32| Rgba(1.0, 0.52, 0.16, (alpha * boost).min(1.0));
-    if over_glass {
+    if over_glass && solid {
+        // Solid: no glass to glow through, so a thin line in the accent itself, readable
+        // on light and dark alike.
+        p.stroke_arc(c, c, ring, 0.0, f, ACCENT.alpha(0.16), 6.0);
+        p.stroke_arc(c, c, ring, 0.0, f, ACCENT.alpha((0.95 * boost).min(1.0)), 2.2);
+    } else if over_glass {
         // On the glass: a thin, bright filament with a tight glow, white-hot at its centre.
-        p.stroke_arc(c, c, ring, 0.0, f, colour(0.10), 7.0);
-        p.stroke_arc(c, c, ring, 0.0, f, colour(0.22), 3.6);
-        p.stroke_arc(c, c, ring, 0.0, f, Rgba(1.0, 0.66, 0.38, (0.8 * boost).min(1.0)), 1.8);
-        p.stroke_arc(c, c, ring, 0.0, f, Rgba(1.0, 0.9, 0.8, (0.45 * boost).min(1.0)), 0.7);
+        p.stroke_arc(c, c, ring, 0.0, f, colour(0.06), 7.0);
+        p.stroke_arc(c, c, ring, 0.0, f, colour(0.14), 3.6);
+        p.stroke_arc(c, c, ring, 0.0, f, Rgba(1.0, 0.66, 0.38, (0.62 * boost).min(1.0)), 1.8);
+        p.stroke_arc(c, c, ring, 0.0, f, Rgba(1.0, 0.9, 0.8, (0.25 * boost).min(1.0)), 0.7);
     } else {
         // Under the glass: a soft halo the tint diffuses.
-        for (width, alpha) in [(22.0, 0.09), (12.0, 0.17)] {
+        for (width, alpha) in [(22.0, 0.06), (12.0, 0.11)] {
             p.stroke_arc(c, c, ring, 0.0, f, colour(alpha), width);
         }
     }
@@ -385,11 +389,13 @@ fn paint_work_light(p: &Painter, w: &Work, c: f32, g: &WheelGeometry, over_glass
     if f < 0.999 {
         let a = f * std::f32::consts::TAU;
         let (hx, hy) = (c + ring * a.sin(), c - ring * a.cos());
-        if over_glass {
-            p.fill_circle(hx, hy, 4.5, ACCENT.alpha(0.2));
-            p.fill_circle(hx, hy, 1.9, Rgba(1.0, 0.92, 0.84, 0.75));
+        if over_glass && solid {
+            p.fill_circle(hx, hy, 3.4, ACCENT);
+        } else if over_glass {
+            p.fill_circle(hx, hy, 4.5, ACCENT.alpha(0.14));
+            p.fill_circle(hx, hy, 1.9, Rgba(1.0, 0.92, 0.84, 0.55));
         } else {
-            p.fill_circle(hx, hy, 14.0, ACCENT.alpha(0.13 * boost));
+            p.fill_circle(hx, hy, 14.0, ACCENT.alpha(0.09 * boost));
         }
     }
 }
