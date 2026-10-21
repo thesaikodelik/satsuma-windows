@@ -336,3 +336,129 @@ pub fn selftest_click(args: &[String]) -> i32 {
     }
     0
 }
+
+/// Eases the pointer from `from` to `to` over `ms`, like a hand would.
+fn glide_smooth(from: (i32, i32), to: (i32, i32), ms: u64) {
+    let steps = (ms / 8).max(1);
+    for k in 1..=steps {
+        let t = k as f32 / steps as f32;
+        let e = t * t * (3.0 - 2.0 * t);
+        let x = from.0 as f32 + (to.0 - from.0) as f32 * e;
+        let y = from.1 as f32 + (to.1 - from.1) as f32 * e;
+        unsafe {
+            let _ = SetCursorPos(x.round() as i32, y.round() as i32);
+        }
+        std::thread::sleep(Duration::from_millis(8));
+    }
+}
+
+/// Debug builds, for demo recordings: `satsuma-cli selftest-tour --from X,Y [--at X,Y]
+/// "<steps>" <file>` presses on a file at X,Y (an icon in File Explorer), drags it to the
+/// wheel's spot and follows the steps: `shift`, `ctrl`, `alt` (tap a wheel key),
+/// `hover:N` (glide to petal N), `center`, `away:DX,DY` (glide off by DX,DY),
+/// `wait:MS`, `shot:PATH` (the wheel's square), `drop` and `cancel`.
+pub fn selftest_tour(args: &[String]) -> i32 {
+    let pair = |v: Option<&String>| v.and_then(|v| v.split_once(',')).and_then(|(x, y)| Some((x.trim().parse::<i32>().ok()?, y.trim().parse::<i32>().ok()?)));
+    let (mut from, mut at, mut script, mut file) = (None, None, String::new(), None);
+    let mut it = args.iter();
+    while let Some(a) = it.next() {
+        match a.as_str() {
+            "--from" => from = pair(it.next()),
+            "--at" => at = pair(it.next()),
+            // The steps, or the file.
+            s if !std::path::Path::new(s).exists() => script = s.to_string(),
+            f => file = Some(dunce::simplified(&std::fs::canonicalize(f).unwrap_or_else(|_| PathBuf::from(f))).to_path_buf()),
+        }
+    }
+    let (Some(from), Some(file)) = (from, file) else {
+        eprintln!("Usage: satsuma-cli selftest-tour --from X,Y [--at X,Y] \"<steps>\" <file>");
+        return 2;
+    };
+    let anchor = at.unwrap_or_else(|| {
+        let (x, y) = super::system::cursor_pos();
+        let work = super::system::work_area_at(x, y);
+        ((work.left + work.right) / 2, (work.top + work.bottom) / 2)
+    });
+    let scale = super::system::scale_at(anchor.0, anchor.1);
+    let settings = Settings::load(&Settings::default_path());
+    let env = Env::discover();
+    let formats = vec![detect_format(&file)];
+    let count = |mode| wheel_items(mode, &formats, &|i| capability::item_available(&env, i, &formats)).len();
+    let mut n = 0usize;
+    let mut held;
+
+    unsafe {
+        let _ = SetCursorPos(from.0, from.1);
+    }
+    std::thread::sleep(Duration::from_millis(200));
+    mouse(MOUSEEVENTF_LEFTDOWN);
+    held = true;
+    std::thread::sleep(Duration::from_millis(250));
+    glide_smooth(from, anchor, 750);
+    let mut pos = anchor;
+    std::thread::sleep(Duration::from_millis(250));
+    for step in script.split_whitespace() {
+        let (word, arg) = step.split_once(':').unwrap_or((step, ""));
+        match word {
+            "shift" | "ctrl" | "alt" => {
+                let (vk, mods) = match word {
+                    "ctrl" => (VK_CONTROL, Mods::CONTROL),
+                    "alt" => (VK_MENU, Mods::OPTION),
+                    _ => (VK_SHIFT, Mods::SHIFT),
+                };
+                if let Some(mode) = settings.wheels.mode_for(mods) {
+                    n = count(mode);
+                }
+                key(vk, false);
+                std::thread::sleep(Duration::from_millis(80));
+                key(vk, true);
+            }
+            "hover" => {
+                let i: usize = arg.parse().unwrap_or(0);
+                if n > 0 {
+                    let lp = WheelGeometry::default().label_position(i % n, n);
+                    let to = (anchor.0 + (lp.x as f32 * scale) as i32, anchor.1 - (lp.y as f32 * scale) as i32);
+                    glide_smooth(pos, to, 420);
+                    pos = to;
+                }
+            }
+            "center" => {
+                glide_smooth(pos, anchor, 420);
+                pos = anchor;
+            }
+            "away" => {
+                if let Some((dx, dy)) = pair(Some(&arg.to_string())) {
+                    let to = (pos.0 + dx, pos.1 + dy);
+                    glide_smooth(pos, to, 600);
+                    pos = to;
+                }
+            }
+            "wait" => std::thread::sleep(Duration::from_millis(arg.parse().unwrap_or(500))),
+            "shot" => {
+                let half = (170.0 * scale) as i32;
+                if let Err(e) = screenshot(anchor.0 - half, anchor.1 - half, half * 2, half * 2, std::path::Path::new(arg)) {
+                    println!("screenshot failed: {e}");
+                }
+            }
+            "drop" => {
+                mouse(MOUSEEVENTF_LEFTUP);
+                held = false;
+            }
+            "cancel" => {
+                key(VK_ESCAPE, false);
+                key(VK_ESCAPE, true);
+                std::thread::sleep(Duration::from_millis(100));
+                mouse(MOUSEEVENTF_LEFTUP);
+                held = false;
+            }
+            other => println!("unknown step {other}"),
+        }
+    }
+    if held {
+        key(VK_ESCAPE, false);
+        key(VK_ESCAPE, true);
+        mouse(MOUSEEVENTF_LEFTUP);
+    }
+    println!("tour done");
+    0
+}

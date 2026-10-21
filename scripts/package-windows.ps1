@@ -74,3 +74,5 @@ $magic = [Text.Encoding]::ASCII.GetBytes('SATSUMA1')
 $out.Write($magic, 0, 8)
 [IO.File]::WriteAllBytes($setup, $out.ToArray())
 Write-Host "Packed $setup"
+# The same installer under a fixed name, so releases/latest/download/Satsuma-Setup.exe always works.
+Copy-Item $setup (Join-Path $dist 'Satsuma-Setup.exe') -Force

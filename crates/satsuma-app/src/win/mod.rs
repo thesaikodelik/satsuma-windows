@@ -52,7 +52,7 @@ use std::path::{Path, PathBuf};
 
 pub use app::run;
 #[cfg(debug_assertions)]
-pub use selftest::{selftest_click, selftest_drag, selftest_screenshot};
+pub use selftest::{selftest_click, selftest_drag, selftest_screenshot, selftest_tour};
 
 /// Lets `satsuma.exe <command>` print to the terminal that started it.
 pub fn attach_console() {
