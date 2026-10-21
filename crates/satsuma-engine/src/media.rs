@@ -814,10 +814,11 @@ pub fn bleep(env: &Env, input: &Path, in_fmt: Format, out: &Path, ranges: &[(f64
     }
     let p = probe_opt(env, input);
     let rate = p.audio.as_ref().map(|a| a.sample_rate).unwrap_or(48_000);
+    let layout = if p.audio.as_ref().is_some_and(|a| a.channels == 1) { "mono" } else { "stereo" };
     let any = ranges.iter().map(|(a, b)| format!("between(t,{a:.3},{b:.3})")).collect::<Vec<_>>().join("+");
     let graph = if tone {
         format!(
-            "[0:a:0]volume=enable='{any}':volume=0[m];sine=f=1000:sample_rate={rate},volume=0.3,volume=enable='not({any})':volume=0[b];[m][b]amix=inputs=2:duration=first:normalize=0[a]"
+            "[0:a:0]volume=enable='{any}':volume=0[m];sine=f=1000:sample_rate={rate},aformat=channel_layouts={layout},volume=2.4,volume=enable='not({any})':volume=0[b];[m][b]amix=inputs=2:duration=first:normalize=0[a]"
         )
     } else {
         format!("[0:a:0]volume=enable='{any}':volume=0[a]")

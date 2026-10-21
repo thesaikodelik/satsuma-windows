@@ -45,6 +45,7 @@ mod selftest;
 mod settings_window;
 pub(crate) mod setup;
 mod cropvideo;
+mod bleep;
 mod pages;
 mod theme;
 mod timeline;
