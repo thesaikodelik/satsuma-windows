@@ -65,13 +65,21 @@ fn has_h264(env: &Env) -> bool {
 
 pub fn tool_available(env: &Env, tool: Tool, input: Format) -> bool {
     use Tool::*;
-    if tool.is_interactive() {
-        return tool.has_editor()
-            && (matches!(input, Jpg | Png | Tiff) || (input == Heic && can_write_image(Heic)))
-            || (tool.has_editor() && input == Webp && env.has_encoder("libwebp"));
-    }
     let ff = env.has_ffmpeg();
     let audio_codec = |f: Format| ff && media::audio_codec_args(env, f, 192).is_ok();
+    if tool.is_interactive() {
+        if !tool.has_editor() {
+            return false;
+        }
+        return match tool {
+            TrimVideo | CropVideo | RedactVideo => {
+                ff && input.category() == Category::Video && input != Gif && media::video_codec_args(env, input).is_ok()
+            }
+            RedactAudio => audio_codec(input),
+            OrganizePdf => input == Pdf,
+            _ => (matches!(input, Jpg | Png | Tiff) || (input == Heic && can_write_image(Heic))) || (input == Webp && env.has_encoder("libwebp")),
+        };
+    }
     match tool {
         Compress => match input {
             Jpg | Tiff => true,

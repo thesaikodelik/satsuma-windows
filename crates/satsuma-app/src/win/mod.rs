@@ -45,6 +45,7 @@ mod selftest;
 mod settings_window;
 pub(crate) mod setup;
 mod theme;
+mod timeline;
 mod update;
 mod wheel;
 mod window;

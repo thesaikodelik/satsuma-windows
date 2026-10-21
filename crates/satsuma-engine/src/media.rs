@@ -53,6 +53,19 @@ impl<'a> Ff<'a> {
         self
     }
 
+    /// Like [`Ff::run`] for numbered outputs (`%03d`); `first` must exist afterwards.
+    pub(crate) fn run_pattern(self, pattern: &Path, first: &Path, cancel: &Cancel) -> Result<()> {
+        let mut cmd = self.env.ffmpeg_command().ok_or_else(|| Error::msg(FFMPEG_MISSING))?;
+        cmd.args(["-loglevel", "error", "-nostats"]);
+        cmd.args(&self.args);
+        cmd.arg(pattern);
+        run(&mut cmd, cancel, &mut |_| {})?;
+        if !first.exists() {
+            return Err(Error::msg("ffmpeg finished without writing an output file."));
+        }
+        Ok(())
+    }
+
     pub(crate) fn run(self, out: &Path, cancel: &Cancel, progress: &mut dyn FnMut(f64)) -> Result<()> {
         let mut cmd = self
             .env
@@ -815,6 +828,33 @@ pub fn bleep(env: &Env, input: &Path, in_fmt: Format, out: &Path, ranges: &[(f64
         .args(audio_codec_args(env, in_fmt, 192)?)
         .duration(p.duration)
         .run(out, cancel, progress)
+}
+
+/// `count` small frames spread through a video, `width` pixels wide, as PNGs in `dir`.
+pub fn thumbnails(env: &Env, input: &Path, count: u32, width: u32, dir: &Path) -> Result<Vec<PathBuf>> {
+    let d = probe(env, input)?.duration.filter(|d| *d > 0.0).ok_or_else(|| Error::msg("Could not read the video duration."))?;
+    std::fs::create_dir_all(dir)?;
+    let pattern = dir.join("thumb-%03d.png");
+    Ff::new(env)
+        .input(input)
+        .arg("-vf")
+        .arg(format!("fps={count}/{d:.3},scale={width}:-2"))
+        .args(["-frames:v", &count.to_string(), "-an"])
+        .run_pattern(&pattern, &dir.join("thumb-001.png"), &Cancel::new())?;
+    let mut files: Vec<PathBuf> = std::fs::read_dir(dir)?.filter_map(|e| e.ok().map(|e| e.path())).filter(|p| p.file_name().is_some_and(|n| n.to_string_lossy().starts_with("thumb-"))).collect();
+    files.sort();
+    Ok(files)
+}
+
+/// One frame at `at` seconds, `width` pixels wide, as a PNG (for previews).
+pub fn frame_scaled(env: &Env, input: &Path, at: f64, width: u32, out: &Path) -> Result<()> {
+    Ff::new(env)
+        .arg("-ss")
+        .arg(format!("{:.3}", at.max(0.0)))
+        .input(input)
+        .args(["-map", "0:v:0", "-frames:v", "1", "-update", "1", "-vf"])
+        .arg(format!("scale={width}:-2"))
+        .run(out, &Cancel::new(), &mut |_| {})
 }
 
 /// Loudness peaks for drawing a waveform: `count` values, 0–1.

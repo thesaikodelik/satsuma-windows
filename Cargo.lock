@@ -1668,6 +1668,7 @@ dependencies = [
  "satsuma-core",
  "satsuma-engine",
  "serde_json",
+ "tempfile",
  "tiny-skia",
  "windows",
  "windows-collections",

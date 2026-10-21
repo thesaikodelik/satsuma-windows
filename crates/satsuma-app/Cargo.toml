@@ -37,6 +37,7 @@ windows-numerics = "0.3"
 windows-collections = "0.3"
 image = { version = "0.25", default-features = false, features = ["png"] }
 tiny-skia = "0.12"
+tempfile = "3"
 zip = { version = "9", default-features = false, features = ["deflate"] }
 
 [target.'cfg(windows)'.build-dependencies]

@@ -103,7 +103,7 @@ impl Tool {
             RedactImage => ("redactImage", "REDACT", "Redact Photo", "eye.slash", "Redacted", SameFormat, "Redacting"),
             NormalizeAudio => ("normalizeAudio", "NORMALIZE", "Normalize Volume", "waveform", "Normalized", SameFormat, "Normalizing volume"),
             AudioToVideo => ("audioToVideo", "VISUALIZE", "Audio Visualizer", "waveform", "Visualizer", Fixed(Mp4), "Creating visualization"),
-            TrimAudio => ("trimAudio", "TRIM", "Trim Silence", "scissors", "Trimmed", SameFormat, "Trimming"),
+            TrimAudio => ("trimAudio", "TRIM", "Trim Audio", "scissors", "Trimmed", SameFormat, "Trimming"),
             AudioChannels => ("audioChannels", "CHANNELS", "Convert Audio Channels", "hifispeaker.2", "Mono", SameFormat, "Converting channels"),
             RedactAudio => ("redactAudio", "BLEEP", "Bleep Audio", "waveform.badge.minus", "Bleeped", SameFormat, "Bleeping"),
             MuteVideo => ("muteVideo", "MUTE", "Remove Audio", "speaker.slash.fill", "Muted", SameFormat, "Removing audio"),
@@ -181,7 +181,7 @@ impl Tool {
 
     /// Interactive tools whose editor window Satsuma has.
     pub fn has_editor(self) -> bool {
-        matches!(self, Tool::CropImage | Tool::FrameImage | Tool::EditImage)
+        matches!(self, Tool::CropImage | Tool::FrameImage | Tool::EditImage | Tool::TrimVideo)
     }
 
     /// Output format for a given input format, or `None` when the tool writes a folder.
