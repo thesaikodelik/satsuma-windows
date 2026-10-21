@@ -41,12 +41,12 @@ sonatina-dream, rebuilt natively for Windows 11 with a *Liquid Glass* look of it
 <table>
   <tr>
     <td width="33%" align="center"><img src="docs/media/wheel-convert.png" alt="The Convert wheel for a JPG, with WEBP lit and its size, 15 KB, in the hub"></td>
-    <td width="33%" align="center"><img src="docs/media/wheel-tools.png" alt="The Tools wheel for a JPG, with Crop lit"></td>
+    <td width="33%" align="center"><img src="docs/media/wheel-tools.png" alt="The Tools wheel for a photo, with Annotate lit"></td>
     <td width="33%" align="center"><img src="docs/media/wheel-actions.png" alt="The Actions wheel, with Copy lit"></td>
   </tr>
   <tr>
     <td><b>Shift: Convert.</b> Every format this file can become. The hub shows the result's size before you drop.</td>
-    <td><b>Ctrl: Tools.</b> Compress, trim, crop, annotate, redact, organize PDF pages, remove metadata and more.</td>
+    <td><b>Ctrl: Tools.</b> Compress, trim, crop, edit, annotate, redact, organize pages, edit tags and more.</td>
     <td><b>Alt: Actions.</b> Share, Float, Copy, Move, Copy Path and open a Terminal there.</td>
   </tr>
 </table>
@@ -55,32 +55,60 @@ sonatina-dream, rebuilt natively for Windows 11 with a *Liquid Glass* look of it
 2. **Tap a key once** while you hold the click. Tap another key to switch wheels.
 3. **Drop on a petal.** Drop in the middle to cancel.
 
-The wheel stays open while the job runs: a thin ring of light fills around it and the hub counts
-the percent (hover it to **Cancel**). A small panel shows the result, and its **×** cancels the job:
+<img src="docs/media/wheel-progress.png" align="right" width="230" alt="The wheel converting a video to WebM: a thin orange ring of light fills along its edge and the hub shows 45%">
 
-<p align="center"><img src="docs/media/hud.png" width="420" alt="Converting to PNG: Saved Sunset.png"></p>
+**The wheel shows the work.** After you drop, the wheel stays where it is: a thin ring of light
+fills along its edge, and the hub counts the percent. Hover the hub to **Cancel**; a tick shows when
+it's done. A small panel reports the result:
+
+<img src="docs/media/hud.png" width="380" alt="Converting to PNG: Saved Sunset.png">
 
 No drag handy? **Convert Files…** in Satsuma's menu opens the same wheel for files you pick; arrow
 keys move around it, Enter applies.
 
+<br clear="right">
+
 ## 🔁 What it converts
 
-| | Convert to | Tools |
-| --- | --- | --- |
-| 🖼 **Images**: JPG, PNG, WebP, HEIC, AVIF, TIFF, BMP | each other, PDF or Word | Compress, Remove Metadata, Crop, Edit Photo, Annotate, Redact, Add Background; with several: Create PDF, Collage |
-| 🎬 **Video**: MP4, MOV, MKV, WebM, AVI, WMV | each other, GIF or MP3 | Compress, Trim, Crop, Redact, Remove Metadata, Mute, Speed, Snapshots, Split; with several: Join |
-| 🎵 **Audio**: MP3, M4A, WAV, FLAC, OGG, Opus, AIFF, WMA | each other | Compress, Trim, Bleep, Remove Metadata, Normalize, Mono / Stereo, Audio → Video |
-| 📄 **PDF** | Word, PowerPoint, Excel, JPG, PNG, EPUB, TXT, Markdown | Compress, Organize Pages, Edit Info, Split; with several: Merge |
-| 📽 **Slides**: PowerPoint (PPT, PPTX) | PDF, JPG, PNG | |
-| 📝 **Documents**: Word, Markdown, RTF, HTML, TXT, EPUB | PDF, Word, TXT, HTML, EPUB, PNG, JPG | |
-| 📊 **Spreadsheets**: Excel, ODS, CSV, TSV | each other or PDF | |
-| 🗜 **Archives**: ZIP, TAR, GZ | each other | Extract |
+| | Convert to |
+| --- | --- |
+| 🖼 **Images**: JPG, PNG, WebP, HEIC, AVIF, TIFF, BMP, SVG | each other, PDF or Word (text is recognised) |
+| 🎬 **Video**: MP4, MOV, MKV, WebM, AVI, WMV | each other, GIF or MP3 |
+| 🎵 **Audio**: MP3, M4A, WAV, FLAC, OGG, Opus, AIFF, WMA | each other |
+| 📄 **PDF** | Word, **PowerPoint**, **Excel**, JPG, PNG, EPUB, TXT, Markdown |
+| 📽 **Slides**: PowerPoint (PPT, PPTX) | PDF, JPG, PNG |
+| 📝 **Documents**: Word, Markdown, RTF, HTML, TXT, EPUB | PDF, Word, TXT, HTML, EPUB, PNG, JPG |
+| 📊 **Spreadsheets**: Excel, ODS, CSV, TSV | each other or PDF |
+| 🗜 **Archives**: ZIP, TAR, GZ | each other |
+
+<img src="docs/media/wheel-convert-pdf.png" align="right" width="230" alt="The Convert wheel for a PDF, with PPTX lit and its size, 1.3 MB, in the hub">
+
+- **PDF → PowerPoint** puts each page on its own slide.
+- **PDF → Excel** reads the pages, scanned ones too, and lays the text out in rows and columns.
+- **Slides → PDF** uses Microsoft PowerPoint, or LibreOffice when there's no PowerPoint.
 
 Images, documents, PDFs, sheets, subtitles and archives work out of the box. Audio and video use
-[ffmpeg](https://ffmpeg.org): `winget install Gyan.FFmpeg`. Slides need Microsoft PowerPoint or
-[LibreOffice](https://www.libreoffice.org).
+[ffmpeg](https://ffmpeg.org): `winget install Gyan.FFmpeg`.
 
-## ✂️ Editors built in
+<br clear="right">
+
+## 🧰 Tools
+
+Many tools open a small window first, so you choose exactly what happens. Everything below runs on
+your PC.
+
+### 🖼 Photos
+
+<table>
+  <tr>
+    <td width="50%"><img src="docs/media/tool-annotate.png" alt="Annotate Photo: an arrow, an ellipse, two numbered markers and the words Swim here! on a lake"></td>
+    <td width="50%"><img src="docs/media/tool-redact-photo.png" alt="Redact Photo: the Wi-Fi password on a cabin card is blurred, the network name is not"></td>
+  </tr>
+  <tr>
+    <td><b>Annotate</b>: arrows, boxes, ellipses, lines, highlights, text and numbered markers, in seven colours and three sizes.</td>
+    <td><b>Redact</b>: blur, pixelate or black out what you mark. <b>Find Text</b> and <b>Find Faces</b> mark them for you.</td>
+  </tr>
+</table>
 
 <table>
   <tr>
@@ -95,37 +123,73 @@ Images, documents, PDFs, sheets, subtitles and archives work out of the box. Aud
   </tr>
 </table>
 
-## 🪄 Tools that ask first
+Also: **Compress** (to a strength or a size, with a longest edge), **Remove Metadata** (camera and
+GPS details), and for several photos **Create PDF** and **Collage** (grid, row or column, with
+spacing and a background colour).
 
-Some tools open a small window before they run, so you choose exactly what happens:
+### 🎬 Video
 
 <table>
   <tr>
-    <td width="33%"><img src="docs/media/tool-annotate.png" alt="Annotate Photo with an arrow, an ellipse, numbered markers and text"></td>
-    <td width="33%"><img src="docs/media/tool-organize.png" alt="Organize PDF with page thumbnails, one rotated, to reorder by dragging"></td>
-    <td width="33%"><img src="docs/media/tool-redact-video.png" alt="Redact Video with a black box over part of the picture for part of the clip"></td>
+    <td width="33%"><img src="docs/media/tool-trim-video.png" alt="Trim Video: start and end handles on a filmstrip of lake scenes, keeping 0:03 to 0:14"></td>
+    <td width="33%"><img src="docs/media/tool-crop-video.png" alt="Crop Video: a 9:16 box over a lake scene"></td>
+    <td width="33%"><img src="docs/media/tool-redact-video.png" alt="Redact Video: the sun pixelated from 0:04 to 0:14"></td>
   </tr>
   <tr>
-    <td align="center"><sub><b>Annotate</b>: arrows, boxes, text, highlights, numbers</sub></td>
-    <td align="center"><sub><b>Organize PDF</b>: reorder, rotate, duplicate, delete</sub></td>
-    <td align="center"><sub><b>Redact Video</b>: blur, pixelate or black out, any part of the clip</sub></td>
-  </tr>
-  <tr>
-    <td><img src="docs/media/tool-redact-photo.png" alt="Redact Photo after Find Text blurred every word on a card"></td>
-    <td><img src="docs/media/tool-bleep.png" alt="Bleep Audio with two parts marked on the waveform"></td>
-    <td valign="top">
-      <b>Trim</b> video and audio on a filmstrip or waveform, <b>Crop Video</b> to a ratio,
-      <b>Speed</b> 0.25× to 4×, <b>Snapshots</b> at chosen times, <b>Split</b> at chosen points,
-      <b>Compress</b> to a target size, <b>Mono / Stereo</b> with balance, <b>Audio → Video</b>
-      in any shape, a custom <b>Collage</b>, and <b>tags</b> for music, video and PDFs.
-    </td>
-  </tr>
-  <tr>
-    <td align="center"><sub><b>Redact Photo</b>: finds text and faces for you</sub></td>
-    <td align="center"><sub><b>Bleep Audio</b>: beep or mute the parts you mark</sub></td>
-    <td></td>
+    <td><b>Trim</b>: drag the handles on the filmstrip, with a large preview, or type exact times.</td>
+    <td><b>Crop</b>: drag the box, or pick 16:9, 9:16, 1:1, 4:3 or 4:5.</td>
+    <td><b>Redact</b>: blur, pixelate or black out boxes, for the whole clip or just part of it.</td>
   </tr>
 </table>
+
+<table>
+  <tr>
+    <td width="50%"><img src="docs/media/tool-speed.png" alt="Change Video Speed: 2× with the pitch kept; 0:20 becomes 0:10"></td>
+    <td width="50%"><img src="docs/media/tool-compress.png" alt="Compress to a size: 5.6 MB now, about 2.8 MB after"></td>
+  </tr>
+  <tr>
+    <td><b>Speed</b>: 0.25× to 4×, keeping the pitch of the voice if you like.</td>
+    <td><b>Compress</b>: Balanced, Strong, or <b>to a size</b> that fits where you're sending it.</td>
+  </tr>
+</table>
+
+Also: **Snapshots** (1 to 30 frames spread through the clip, PNG or JPG), **Split** (into equal
+parts or clips of a set length), **Mute**, **Edit Metadata**, and for several clips **Join**.
+
+### 🎵 Audio
+
+<table>
+  <tr>
+    <td width="50%"><img src="docs/media/tool-bleep.png" alt="Bleep Audio: two parts of a voice note marked on the waveform, where a phone number is said"></td>
+    <td width="50%"><img src="docs/media/tool-metadata.png" alt="Edit Metadata: title, artist, album, year, genre and comment of a voice note"></td>
+  </tr>
+  <tr>
+    <td><b>Bleep</b>: mark parts on the waveform; they get a beep or silence.</td>
+    <td><b>Edit Metadata</b>: title, artist, album, year, genre and comment, or remove everything.</td>
+  </tr>
+</table>
+
+<img src="docs/media/tool-visualize.png" align="right" width="46%" alt="Audio to Video: landscape, portrait or square, with a moving or still waveform">
+
+Also: **Trim** on the waveform (or just cut the silence at both ends), **Mono / Stereo** with the
+volume of each side, **Normalize**, **Compress** and **Audio → Video** (landscape, portrait or
+square, with a moving or still waveform).
+
+<br clear="right">
+
+### 📄 PDF
+
+<img src="docs/media/tool-organize.png" align="right" width="46%" alt="Organize PDF: six journal pages as thumbnails, page 6 moved up and page 4 turned 90°">
+
+**Organize Pages**: every page as a thumbnail. Drag pages into a new order, turn them, duplicate or
+delete them, then save.
+
+Also: **Compress**, **Split**, **Edit Info** (title, author, subject and keywords), and for several
+PDFs **Merge**.
+
+<br clear="right">
+
+### 📌 Float
 
 <img src="docs/media/float.png" align="right" width="110" alt="The Float shelf holding Sunset.jpg">
 

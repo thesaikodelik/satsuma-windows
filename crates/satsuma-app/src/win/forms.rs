@@ -292,7 +292,8 @@ impl Form for Compress {
         }
         let what = if self.files.len() == 1 { "Now".to_string() } else { format!("{} files, now", self.files.len()) };
         let note = match self.mode {
-            2 => format!("{what} {}; aims for about {} each in proportion.", megabytes(self.size), megabytes(self.target())),
+            2 if self.files.len() == 1 => format!("Now {}; the result will be about {}.", megabytes(self.size), megabytes(self.target())),
+            2 => format!("{what} {}; about {} in all, each file shrunk in proportion.", megabytes(self.size), megabytes(self.target())),
             1 => format!("{what} {}. Strong makes smaller files with more quality loss.", megabytes(self.size)),
             _ => format!("{what} {}. Balanced keeps quality close to the original.", megabytes(self.size)),
         };
