@@ -11,7 +11,7 @@
   <img src="https://img.shields.io/badge/version-1.1.0-ff6e17" alt="نسخه ۱٫۱٫۰">
   <img src="https://img.shields.io/badge/license-MIT-2ea44f" alt="مجوز MIT">
   <img src="https://img.shields.io/badge/made%20with-Rust-b7410e?logo=rust&logoColor=white" alt="ساخته‌شده با Rust">
-  <img src="https://img.shields.io/badge/size-12%20MB-6e40c9" alt="۱۲ مگابایت">
+  <img src="https://img.shields.io/badge/size-13%20MB-6e40c9" alt="۱۳ مگابایت">
 </p>
 
 <p align="center">
@@ -84,13 +84,14 @@ PDFها یکی می‌شوند و عکس پس‌زمینه می‌گیرد. هم
 | | تبدیل به |
 | --- | --- |
 | 🖼 **عکس**: JPG، PNG، WebP، HEIC، AVIF، TIFF، BMP، SVG | به یکدیگر، PDF یا Word (متن عکس خوانده می‌شود) |
-| 🎬 **ویدیو**: MP4، MOV، MKV، WebM، AVI، WMV | به یکدیگر، GIF یا MP3 |
+| 🎬 **ویدیو**: MP4، MOV، MKV، WebM، AVI، WMV، GIF | به یکدیگر، GIF یا MP3 |
 | 🎵 **صدا**: MP3، M4A، WAV، FLAC، OGG، Opus، AIFF، WMA | به یکدیگر |
 | 📄 **PDF** | Word، **PowerPoint**، **Excel**، JPG، PNG، EPUB، TXT، Markdown |
 | 📽 **اسلاید**: PowerPoint (PPT، PPTX) | PDF، JPG، PNG |
-| 📝 **سند**: Word، Markdown، RTF، HTML، TXT، EPUB | PDF، Word، TXT، HTML، EPUB، PNG، JPG |
-| 📊 **جدول**: Excel، ODS، CSV، TSV | به یکدیگر یا PDF |
-| 🗜 **فایل فشرده**: ZIP، TAR، GZ | به یکدیگر |
+| 📝 **سند**: Word، Markdown، RTF، TXT، EPUB | PDF، Word، TXT، Markdown، HTML، EPUB، PNG، JPG |
+| 📊 **جدول**: Excel (XLSX، XLS)، ODS، CSV، TSV | به یکدیگر یا PDF |
+| 💬 **زیرنویس**: SRT، VTT | به یکدیگر یا TXT |
+| 🗜 **فایل فشرده**: ZIP، TAR، GZ، RAR | ZIP، TAR یا GZ؛ یا **استخراج** |
 
 <img src="docs/media/wheel-convert-pdf.png" align="left" width="230" alt="چرخ تبدیل برای PDF، با گلبرگ PPTX روشن و حجم ۱٫۳ مگابایت">
 
@@ -98,8 +99,10 @@ PDFها یکی می‌شوند و عکس پس‌زمینه می‌گیرد. هم
 - **PDF به Excel** صفحه‌ها را می‌خواند (اسکن‌شده‌ها را هم) و متن را در ردیف و ستون می‌چیند.
 - **اسلاید به PDF** با Microsoft PowerPoint انجام می‌شود، و اگر PowerPoint نباشد با LibreOffice.
 
-عکس، سند، PDF، جدول، زیرنویس و فایل فشرده بدون نیاز به چیز دیگری کار می‌کنند. برای صدا و
-ویدیو [ffmpeg](https://ffmpeg.org) لازم است: `winget install Gyan.FFmpeg`
+برای صدا و ویدیو [ffmpeg](https://ffmpeg.org) لازم است: `winget install Gyan.FFmpeg`. خروجی WebP و AVIF،
+فشرده‌سازی PNG و کلاژ هم با ffmpeg کار می‌کنند. خروجی HEIC افزونه‌های HEIF و HEVC را از Microsoft Store
+می‌خواهد. بقیه بدون نیاز به چیز دیگری کار می‌کنند، و گلبرگ کارهایی که کامپیوترتان هنوز نمی‌تواند
+اصلاً نشان داده نمی‌شود.
 
 <br clear="left">
 
@@ -138,7 +141,7 @@ PDFها یکی می‌شوند و عکس پس‌زمینه می‌گیرد. هم
 
 <div dir="rtl">
 
-همچنین: **فشرده‌سازی** (با شدت دلخواه یا تا حجم مشخص، و حداکثر اندازه‌ی ضلع)، **حذف متادیتا**
+همچنین: **فشرده‌سازی** (با شدت دلخواه یا تا حجم مشخص، و اندازه‌ی بلندترین ضلع)، **حذف متادیتا**
 (مشخصات دوربین و GPS)، و برای چند عکس **ساخت PDF** و **کلاژ** (شبکه، ردیف یا ستون، با فاصله و رنگ
 پس‌زمینه).
 
@@ -173,7 +176,8 @@ PDFها یکی می‌شوند و عکس پس‌زمینه می‌گیرد. هم
 <div dir="rtl">
 
 همچنین: **عکس از فریم‌ها** (۱ تا ۳۰ فریم در طول ویدیو، PNG یا JPG)، **تقسیم** (به چند قسمت مساوی
-یا تکه‌هایی با طول مشخص)، **بی‌صدا کردن**، **ویرایش مشخصات**، و برای چند ویدیو **اتصال**.
+یا تکه‌هایی با طول مشخص)، **بی‌صدا کردن**، **ویرایش مشخصات**، و برای چند ویدیو **اتصال**. ابزارهای
+ویدیو روی MP4، MOV و MKV کار می‌کنند؛ ویدیوهای دیگر را اول به یکی از این‌ها تبدیل کنید.
 
 ### 🎵 صدا
 
@@ -196,7 +200,7 @@ PDFها یکی می‌شوند و عکس پس‌زمینه می‌گیرد. هم
 
 همچنین: **کوتاه کردن** روی موج صدا (یا فقط حذف سکوت اول و آخر)، **مونو/استریو** با تنظیم بلندی
 هر طرف، **یکسان‌سازی صدا**، **فشرده‌سازی** و **صدا به ویدیو** (افقی، عمودی یا مربع، با موج متحرک یا
-ثابت).
+ثابت). ابزارهای صدا روی MP3، M4A، WAV و FLAC کار می‌کنند.
 
 <br clear="left">
 

@@ -11,7 +11,7 @@
   <img src="https://img.shields.io/badge/version-1.1.0-ff6e17" alt="Version 1.1.0">
   <img src="https://img.shields.io/badge/license-MIT-2ea44f" alt="MIT license">
   <img src="https://img.shields.io/badge/made%20with-Rust-b7410e?logo=rust&logoColor=white" alt="Made with Rust">
-  <img src="https://img.shields.io/badge/size-12%20MB-6e40c9" alt="12 MB">
+  <img src="https://img.shields.io/badge/size-13%20MB-6e40c9" alt="13 MB">
 </p>
 
 <p align="center">
@@ -73,13 +73,14 @@ keys move around it, Enter applies.
 | | Convert to |
 | --- | --- |
 | 🖼 **Images**: JPG, PNG, WebP, HEIC, AVIF, TIFF, BMP, SVG | each other, PDF or Word (text is recognised) |
-| 🎬 **Video**: MP4, MOV, MKV, WebM, AVI, WMV | each other, GIF or MP3 |
+| 🎬 **Video**: MP4, MOV, MKV, WebM, AVI, WMV, GIF | each other, GIF or MP3 |
 | 🎵 **Audio**: MP3, M4A, WAV, FLAC, OGG, Opus, AIFF, WMA | each other |
 | 📄 **PDF** | Word, **PowerPoint**, **Excel**, JPG, PNG, EPUB, TXT, Markdown |
 | 📽 **Slides**: PowerPoint (PPT, PPTX) | PDF, JPG, PNG |
-| 📝 **Documents**: Word, Markdown, RTF, HTML, TXT, EPUB | PDF, Word, TXT, HTML, EPUB, PNG, JPG |
-| 📊 **Spreadsheets**: Excel, ODS, CSV, TSV | each other or PDF |
-| 🗜 **Archives**: ZIP, TAR, GZ | each other |
+| 📝 **Documents**: Word, Markdown, RTF, TXT, EPUB | PDF, Word, TXT, Markdown, HTML, EPUB, PNG, JPG |
+| 📊 **Spreadsheets**: Excel (XLSX, XLS), ODS, CSV, TSV | each other or PDF |
+| 💬 **Subtitles**: SRT, VTT | each other or TXT |
+| 🗜 **Archives**: ZIP, TAR, GZ, RAR | ZIP, TAR or GZ; or **Extract** them |
 
 <img src="docs/media/wheel-convert-pdf.png" align="right" width="230" alt="The Convert wheel for a PDF, with PPTX lit and its size, 1.3 MB, in the hub">
 
@@ -87,8 +88,10 @@ keys move around it, Enter applies.
 - **PDF → Excel** reads the pages, scanned ones too, and lays the text out in rows and columns.
 - **Slides → PDF** uses Microsoft PowerPoint, or LibreOffice when there's no PowerPoint.
 
-Images, documents, PDFs, sheets, subtitles and archives work out of the box. Audio and video use
-[ffmpeg](https://ffmpeg.org): `winget install Gyan.FFmpeg`.
+Audio and video use [ffmpeg](https://ffmpeg.org): `winget install Gyan.FFmpeg`. ffmpeg also brings
+WebP and AVIF output, PNG compression and collages. HEIC output needs the HEIF and HEVC extensions
+from the Microsoft Store. Everything else works out of the box, and petals your PC can't do yet
+are simply hidden.
 
 <br clear="right">
 
@@ -154,7 +157,8 @@ spacing and a background colour).
 </table>
 
 Also: **Snapshots** (1 to 30 frames spread through the clip, PNG or JPG), **Split** (into equal
-parts or clips of a set length), **Mute**, **Edit Metadata**, and for several clips **Join**.
+parts or clips of a set length), **Mute**, **Edit Metadata**, and for several clips **Join**. Video
+tools work on MP4, MOV and MKV; convert other videos to one of those first.
 
 ### 🎵 Audio
 
@@ -173,7 +177,7 @@ parts or clips of a set length), **Mute**, **Edit Metadata**, and for several cl
 
 Also: **Trim** on the waveform (or just cut the silence at both ends), **Mono / Stereo** with the
 volume of each side, **Normalize**, **Compress** and **Audio → Video** (landscape, portrait or
-square, with a moving or still waveform).
+square, with a moving or still waveform). Audio tools work on MP3, M4A, WAV and FLAC.
 
 <br clear="right">
 
@@ -271,7 +275,7 @@ Stable Rust with the MSVC toolchain.
 winget install Rustlang.Rustup
 cargo build --release -p satsuma-app -p satsuma-setup   # satsuma.exe, satsuma-cli.exe, satsuma-setup.exe
 cargo test --workspace
-powershell -ExecutionPolicy Bypass -File scripts\package-windows.ps1   # dist\Satsuma-Setup-<version>.exe
+powershell -ExecutionPolicy Bypass -File scripts\package-windows.ps1   # dist\Satsuma-Setup.exe and the zip
 ```
 
 ### Command line
@@ -285,7 +289,8 @@ terminal.
 crates/
   satsuma-core/     formats, wheels, gestures and settings (shared with macOS)
   satsuma-engine/   conversions and tools; Windows services in src/win/
-  satsuma-app/      the notification-area app, wheel, editors, Settings, updater and Setup (src/win/)
+  satsuma-app/      the notification-area app, wheel, tool windows, Settings, updater and Setup (src/win/)
+  satsuma-setup/    the installer's own executable, with its icon
 ```
 
 Windows has no shared drag pasteboard, so Satsuma lets the drag announce itself: when a wheel key is

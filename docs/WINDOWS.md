@@ -11,7 +11,7 @@ audio and video.
 
 - The app lives in the **notification area** (the citrus icon at the right end of the taskbar).
   Click it for the menu: Convert Files…, Settings…, How to Use and Quit. Every preference is in
-  **Settings** (General, Appearance, Shortcuts, Files); changes apply and save as you make them.
+  **Settings** (General, Appearance, Shortcuts, Files, About); changes apply and save as you make them.
 - While dragging files, tap **Shift** to convert, **Ctrl** for tools and **Alt** for file actions.
   Change them in *Settings › Shortcuts*. The Windows key isn't offered, because tapping it opens Start.
 - *Settings › Appearance*: **Liquid** (blurred glass after 30nama's design, with a liquid highlight
@@ -70,15 +70,16 @@ Petals whose backend is missing are hidden, as on macOS.
   Store. HEIC input also works through ffmpeg.
 - **AVIF output** needs ffmpeg with an AV1 encoder (libaom, SVT-AV1 or rav1e).
 - **Documents → PDF/PNG/JPG** use Microsoft Edge, which ships with Windows.
-- **OCR** (image → DOCX, scanned PDFs) uses the Windows OCR languages for your display languages.
+- **Slides (PPT, PPTX) → PDF/PNG/JPG** use Microsoft PowerPoint, or LibreOffice when PowerPoint
+  isn't installed.
+- **OCR** (image → DOCX, scanned PDFs, PDF → Excel, Redact Photo's *Find Text*) uses the Windows OCR
+  languages for your display languages.
   Add one under *Settings › Time & language › Language & region* if recognition is unavailable.
 
 ## Differences from the macOS app
 
 - There is no haptic tick; the highlight sound remains (*Sound Feedback*).
 - *Convert Files…* picks files only: the Windows file dialog can't select files and folders at once.
-- The wheel's disc is semi-opaque instead of frosted glass. Acrylic doesn't combine with per-pixel
-  alpha windows.
 - The app isn't code-signed, so SmartScreen asks once.
 
 ## Development
@@ -88,7 +89,7 @@ cargo test --workspace                     # core, engine and end-to-end convers
 cargo run -p satsuma-app --bin satsuma     # start the app
 $env:SATSUMA_DEBUG_LOG="$env:TEMP\satsuma.log"; cargo run -p satsuma-app --bin satsuma   # log gestures and jobs
 cargo run -p satsuma-app --bin satsuma-cli -- render-wheel --mode tools --format jpg --out wheel.png
-powershell -ExecutionPolicy Bypass -File scripts\package-windows.ps1   # dist\Satsuma-<version>-windows-x64.zip
+powershell -ExecutionPolicy Bypass -File scripts\package-windows.ps1   # dist\Satsuma-Setup.exe and dist\Satsuma-<version>-windows-x64.zip
 ```
 
 Debug builds have two more commands for checking the real gesture:
