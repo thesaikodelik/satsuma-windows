@@ -8,7 +8,7 @@
 
 <p align="center">
   <img src="https://img.shields.io/badge/Windows-11-0078d4?logo=windows11&logoColor=white" alt="Windows 11">
-  <img src="https://img.shields.io/badge/version-1.0.0-ff6e17" alt="Version 1.0.0">
+  <img src="https://img.shields.io/badge/version-1.1.0-ff6e17" alt="Version 1.1.0">
   <img src="https://img.shields.io/badge/license-MIT-2ea44f" alt="MIT license">
   <img src="https://img.shields.io/badge/made%20with-Rust-b7410e?logo=rust&logoColor=white" alt="Made with Rust">
   <img src="https://img.shields.io/badge/size-12%20MB-6e40c9" alt="12 MB">
@@ -46,7 +46,7 @@ sonatina-dream, rebuilt natively for Windows 11 with a *Liquid Glass* look of it
   </tr>
   <tr>
     <td><b>Shift: Convert.</b> Every format this file can become. The hub shows the result's size before you drop.</td>
-    <td><b>Ctrl: Tools.</b> Compress, remove metadata, crop, edit, add a background, split, merge and more.</td>
+    <td><b>Ctrl: Tools.</b> Compress, trim, crop, annotate, redact, organize PDF pages, remove metadata and more.</td>
     <td><b>Alt: Actions.</b> Share, Float, Copy, Move, Copy Path and open a Terminal there.</td>
   </tr>
 </table>
@@ -55,7 +55,8 @@ sonatina-dream, rebuilt natively for Windows 11 with a *Liquid Glass* look of it
 2. **Tap a key once** while you hold the click. Tap another key to switch wheels.
 3. **Drop on a petal.** Drop in the middle to cancel.
 
-A small panel shows the progress and the result, and its **×** cancels the job:
+The wheel stays open while the job runs: a thin ring of light fills around it and the hub counts
+the percent (hover it to **Cancel**). A small panel shows the result, and its **×** cancels the job:
 
 <p align="center"><img src="docs/media/hud.png" width="420" alt="Converting to PNG: Saved Sunset.png"></p>
 
@@ -66,16 +67,18 @@ keys move around it, Enter applies.
 
 | | Convert to | Tools |
 | --- | --- | --- |
-| 🖼 **Images**: JPG, PNG, WebP, HEIC, AVIF, TIFF, BMP | each other, PDF or Word | Compress, Remove Metadata, Crop, Edit Photo, Add Background; with several: Create PDF, Collage |
-| 🎬 **Video**: MP4, MOV, MKV, WebM, AVI, WMV | each other, GIF or MP3 | Compress, Remove Metadata, Mute, Speed, Snapshots, Split; with several: Join |
-| 🎵 **Audio**: MP3, M4A, WAV, FLAC, OGG, Opus, AIFF, WMA | each other | Compress, Remove Metadata, Normalize, Trim, Mono / Stereo, Audio → Video |
-| 📄 **PDF** | Word, JPG, PNG, EPUB, TXT, Markdown | Compress, Remove Metadata, Split; with several: Merge |
+| 🖼 **Images**: JPG, PNG, WebP, HEIC, AVIF, TIFF, BMP | each other, PDF or Word | Compress, Remove Metadata, Crop, Edit Photo, Annotate, Redact, Add Background; with several: Create PDF, Collage |
+| 🎬 **Video**: MP4, MOV, MKV, WebM, AVI, WMV | each other, GIF or MP3 | Compress, Trim, Crop, Redact, Remove Metadata, Mute, Speed, Snapshots, Split; with several: Join |
+| 🎵 **Audio**: MP3, M4A, WAV, FLAC, OGG, Opus, AIFF, WMA | each other | Compress, Trim, Bleep, Remove Metadata, Normalize, Mono / Stereo, Audio → Video |
+| 📄 **PDF** | Word, PowerPoint, Excel, JPG, PNG, EPUB, TXT, Markdown | Compress, Organize Pages, Edit Info, Split; with several: Merge |
+| 📽 **Slides**: PowerPoint (PPT, PPTX) | PDF, JPG, PNG | |
 | 📝 **Documents**: Word, Markdown, RTF, HTML, TXT, EPUB | PDF, Word, TXT, HTML, EPUB, PNG, JPG | |
 | 📊 **Spreadsheets**: Excel, ODS, CSV, TSV | each other or PDF | |
 | 🗜 **Archives**: ZIP, TAR, GZ | each other | Extract |
 
 Images, documents, PDFs, sheets, subtitles and archives work out of the box. Audio and video use
-[ffmpeg](https://ffmpeg.org): `winget install Gyan.FFmpeg`.
+[ffmpeg](https://ffmpeg.org): `winget install Gyan.FFmpeg`. Slides need Microsoft PowerPoint or
+[LibreOffice](https://www.libreoffice.org).
 
 ## ✂️ Editors built in
 
@@ -89,6 +92,38 @@ Images, documents, PDFs, sheets, subtitles and archives work out of the box. Aud
     <td align="center"><sub><b>Crop Image</b>: presets or an exact size</sub></td>
     <td align="center"><sub><b>Add Background</b>: gradients, colours or your own image</sub></td>
     <td align="center"><sub><b>Edit Photo</b>: 20 adjustments with a live preview</sub></td>
+  </tr>
+</table>
+
+## 🪄 Tools that ask first
+
+Some tools open a small window before they run, so you choose exactly what happens:
+
+<table>
+  <tr>
+    <td width="33%"><img src="docs/media/tool-annotate.png" alt="Annotate Photo with an arrow, an ellipse, numbered markers and text"></td>
+    <td width="33%"><img src="docs/media/tool-organize.png" alt="Organize PDF with page thumbnails, one rotated, to reorder by dragging"></td>
+    <td width="33%"><img src="docs/media/tool-redact-video.png" alt="Redact Video with a black box over part of the picture for part of the clip"></td>
+  </tr>
+  <tr>
+    <td align="center"><sub><b>Annotate</b>: arrows, boxes, text, highlights, numbers</sub></td>
+    <td align="center"><sub><b>Organize PDF</b>: reorder, rotate, duplicate, delete</sub></td>
+    <td align="center"><sub><b>Redact Video</b>: blur, pixelate or black out, any part of the clip</sub></td>
+  </tr>
+  <tr>
+    <td><img src="docs/media/tool-redact-photo.png" alt="Redact Photo after Find Text blurred every word on a card"></td>
+    <td><img src="docs/media/tool-bleep.png" alt="Bleep Audio with two parts marked on the waveform"></td>
+    <td valign="top">
+      <b>Trim</b> video and audio on a filmstrip or waveform, <b>Crop Video</b> to a ratio,
+      <b>Speed</b> 0.25× to 4×, <b>Snapshots</b> at chosen times, <b>Split</b> at chosen points,
+      <b>Compress</b> to a target size, <b>Mono / Stereo</b> with balance, <b>Audio → Video</b>
+      in any shape, a custom <b>Collage</b>, and <b>tags</b> for music, video and PDFs.
+    </td>
+  </tr>
+  <tr>
+    <td align="center"><sub><b>Redact Photo</b>: finds text and faces for you</sub></td>
+    <td align="center"><sub><b>Bleep Audio</b>: beep or mute the parts you mark</sub></td>
+    <td></td>
   </tr>
 </table>
 
