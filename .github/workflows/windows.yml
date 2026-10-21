@@ -1,0 +1,47 @@
+name: Windows
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*-windows"]
+  pull_request:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test --workspace
+
+      # Builds satsuma.exe and satsuma-setup.exe, then packs the zip and Satsuma-Setup.exe in dist\.
+      - name: Package
+        shell: pwsh
+        run: ./scripts/package-windows.ps1
+
+      # Code signing (SignPath Foundation) goes here once the project is accepted.
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: satsuma-windows-x64
+          path: |
+            dist/Satsuma-Setup.exe
+            dist/Satsuma-*-windows-x64.zip
+
+      # A version tag adds its files to that release (its notes are written by hand).
+      - name: Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tag = "${{ github.ref_name }}"
+          $version = $tag.TrimStart('v') -replace '-windows$', ''
+          gh release view $tag 2>$null
+          if ($LASTEXITCODE -ne 0) {
+            gh release create $tag --title "Satsuma for Windows $version" --notes "Satsuma for Windows $version."
+          }
+          gh release upload $tag dist/Satsuma-Setup.exe "dist/Satsuma-$version-windows-x64.zip" --clobber
