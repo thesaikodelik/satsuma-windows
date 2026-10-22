@@ -42,8 +42,8 @@ jobs:
         run: |
           $tag = "${{ github.ref_name }}"
           $version = $tag.TrimStart('v') -replace '-windows$', ''
+          # A release published by hand keeps its files (its notes list their SHA-256).
           gh release view $tag 2>$null
-          if ($LASTEXITCODE -ne 0) {
-            gh release create $tag --title "Satsuma for Windows $version" --notes "Satsuma for Windows $version."
-          }
-          gh release upload $tag dist/Satsuma-Setup.exe "dist/Satsuma-$version-windows-x64.zip" --clobber
+          if ($LASTEXITCODE -eq 0) { Write-Host "Release $tag exists; leaving its files alone."; exit 0 }
+          gh release create $tag --title "Satsuma for Windows $version" --notes "Satsuma for Windows $version."
+          gh release upload $tag dist/Satsuma-Setup.exe "dist/Satsuma-$version-windows-x64.zip"
