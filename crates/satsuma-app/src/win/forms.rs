@@ -464,6 +464,8 @@ struct Tags {
     pdf: bool,
     /// (key written to the file, label, value)
     fields: Vec<(&'static str, &'static str, String)>,
+    /// The values as they were, to write only what changed.
+    originals: Vec<String>,
     clear: bool,
 }
 
@@ -474,10 +476,11 @@ impl Tags {
         } else {
             vec![("title", "Title"), ("artist", "Artist"), ("album", "Album"), ("date", "Year"), ("genre", "Genre"), ("comment", "Comment")]
         };
-        let current: Vec<(String, String)> = match files.first() {
-            Some(f) if pdf => satsuma_engine::pdf::read_info(f),
-            Some(f) => satsuma_engine::media::read_tags(env(), f),
-            None => Vec::new(),
+        // Several files start empty: each keeps its own values unless a field is filled in.
+        let current: Vec<(String, String)> = match files.as_slice() {
+            [f] if pdf => satsuma_engine::pdf::read_info(f),
+            [f] => satsuma_engine::media::read_tags(env(), f),
+            _ => Vec::new(),
         };
         let fields = keys
             .into_iter()
@@ -485,8 +488,9 @@ impl Tags {
                 let v = current.iter().find(|(ck, _)| ck.eq_ignore_ascii_case(k)).map(|(_, v)| v.clone()).unwrap_or_default();
                 (k, label, v)
             })
-            .collect();
-        Tags { files, pdf, fields, clear: false }
+            .collect::<Vec<_>>();
+        let originals = fields.iter().map(|(_, _, v)| v.clone()).collect();
+        Tags { files, pdf, fields, originals, clear: false }
     }
 }
 
@@ -499,13 +503,14 @@ impl Form for Tags {
             .fields
             .iter()
             .enumerate()
-            .map(|(i, (_, label, value))| Field::Text { id: 10 + i as u32, label: label.to_string(), value: value.clone(), placeholder: "None".into() })
+            .map(|(i, (_, label, value))| Field::Text { id: 10 + i as u32, label: label.to_string(), value: value.clone(), placeholder: if self.files.len() > 1 { "Keep each file's".into() } else { "None".into() } })
             .collect();
         v.push(Field::Toggle { id: 1, label: "Remove everything else".into(), value: self.clear });
-        v.push(Field::Note(if self.pdf {
-            "Also removes hidden XMP data when switched on.".into()
+        let more = if self.pdf { "Also removes hidden XMP data when switched on." } else { "Dates, encoder details and cover pictures go too when switched on." };
+        v.push(Field::Note(if self.files.len() > 1 {
+            format!("{} files: fields you fill in are set on all of them; empty ones keep each file's own. {more}", self.files.len())
         } else {
-            "Dates, encoder details and cover pictures go too when switched on.".into()
+            more.to_string()
         }));
         v
     }
@@ -524,7 +529,17 @@ impl Form for Tags {
         "Save".into()
     }
     fn operation(&self) -> Result<Operation, String> {
-        let tags = self.fields.iter().map(|(k, _, v)| (k.to_string(), v.trim().to_string())).collect();
+        let many = self.files.len() > 1;
+        let tags: Vec<(String, String)> = self
+            .fields
+            .iter()
+            .zip(&self.originals)
+            .filter(|((_, _, v), was)| if many { !v.trim().is_empty() } else { v.trim() != was.trim() })
+            .map(|((k, _, v), _)| (k.to_string(), v.trim().to_string()))
+            .collect();
+        if tags.is_empty() && !self.clear {
+            return Err("Change a field first.".into());
+        }
         Ok(Operation::Configured(Tool::RemoveMetadata, ToolOptions::Tags { clear: self.clear, tags }))
     }
     fn files(&self) -> Vec<PathBuf> {

@@ -252,7 +252,8 @@ pub fn paint(p: &Painter, m: &WheelModel, pal: &Palette, behind: Option<&Behind>
         let color = if m.hub_hot { Rgba::WHITE } else { accent };
         p.text_centered("Get", c, c - 8.0, 13.0, Weight::Bold, color);
         p.text_centered("ffmpeg", c, c + 8.0, 13.0, Weight::Bold, color);
-        p.text("Audio and video need ffmpeg. Drop here to get it (35 MB).", (c - 80.0, c + r + 10.0, 160.0, 40.0), 10.0, Weight::Semibold, pal.secondary, Align::Center, true);
+        let note = format!("Audio and video need ffmpeg. Drop here to get it ({}).", super::ffmpeg::download_size());
+        p.text(&note, (c - 80.0, c + r + 10.0, 160.0, 40.0), 10.0, Weight::Semibold, pal.secondary, Align::Center, true);
         return;
     }
     if m.items.is_empty() {

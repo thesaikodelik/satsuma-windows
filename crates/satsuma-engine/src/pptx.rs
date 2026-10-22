@@ -47,7 +47,8 @@ pub fn write_pictures(out: &Path, pages: &[(Vec<u8>, u32, u32)]) -> Result<()> {
     let Some((_, w0, h0)) = pages.first() else {
         return Err(Error::msg("There are no pages to put on slides."));
     };
-    let slide_h = (SLIDE_W as f64 * *h0 as f64 / *w0 as f64).round() as u64;
+    // PowerPoint accepts slide sides of 1 to 56 inches; very tall or wide pages are letterboxed.
+    let slide_h = ((SLIDE_W as f64 * *h0 as f64 / *w0 as f64).round() as u64).clamp(914_400, 51_206_400);
     let z = |e: zip::result::ZipError| Error::msg(format!("Could not write the presentation: {e}"));
     let mut zip = zip::ZipWriter::new(std::fs::File::create(out)?);
     let opts = SimpleFileOptions::default();

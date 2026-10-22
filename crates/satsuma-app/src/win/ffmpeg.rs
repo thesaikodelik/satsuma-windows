@@ -26,6 +26,14 @@ pub enum State {
 static STATE: Mutex<State> = Mutex::new(State::Idle);
 static CANCEL: AtomicBool = AtomicBool::new(false);
 static AUTO_UPDATE: AtomicBool = AtomicBool::new(true);
+/// A quiet update is downloading in the background.
+static QUIET: AtomicBool = AtomicBool::new(false);
+
+/// "35 MB" with Windows 11's tar (the 7z package), "115 MB" otherwise (the zip).
+pub fn download_size() -> &'static str {
+    static SIZE: std::sync::OnceLock<&'static str> = std::sync::OnceLock::new();
+    SIZE.get_or_init(|| if tar_reads_7z() { "35 MB" } else { "115 MB" })
+}
 
 /// Follows *Settings › General › Keep ffmpeg up to date*.
 pub fn set_auto_update(on: bool) {
@@ -49,6 +57,9 @@ pub fn describe() -> (String, bool) {
         State::Failed(e) => return (format!("Couldn't get ffmpeg. {e}"), false),
         _ => {}
     }
+    if QUIET.load(Ordering::SeqCst) {
+        return ("Updating ffmpeg…".into(), false);
+    }
     if let Some((v, _)) = satsuma_engine::env::managed_ffmpeg() {
         return (format!("ffmpeg {v}, downloaded by Satsuma."), true);
     }
@@ -69,7 +80,7 @@ fn set(s: State) {
 }
 
 pub fn busy() -> bool {
-    matches!(state(), State::Downloading { .. } | State::Unpacking)
+    QUIET.load(Ordering::SeqCst) || matches!(state(), State::Downloading { .. } | State::Unpacking)
 }
 
 /// Acknowledges a finished or failed download, so the state goes back to idle.
@@ -109,7 +120,10 @@ pub fn refresh_quietly() {
     if busy() || !AUTO_UPDATE.load(Ordering::SeqCst) {
         return;
     }
-    match get(Some(&have)) {
+    QUIET.store(true, Ordering::SeqCst);
+    let result = get(Some(&have));
+    QUIET.store(false, Ordering::SeqCst);
+    match result {
         Ok(v) if v != have => debug!("ffmpeg updated from {have} to {v}"),
         Ok(_) => {}
         Err(e) => debug!("ffmpeg update check: {e}"),
@@ -117,7 +131,12 @@ pub fn refresh_quietly() {
 }
 
 fn agent() -> ureq::Agent {
-    ureq::AgentBuilder::new().timeout_connect(std::time::Duration::from_secs(20)).user_agent("Satsuma for Windows").build()
+    // A stalled connection gives up after a minute instead of hanging (and Cancel with it).
+    ureq::AgentBuilder::new()
+        .timeout_connect(std::time::Duration::from_secs(20))
+        .timeout_read(std::time::Duration::from_secs(60))
+        .user_agent("Satsuma for Windows")
+        .build()
 }
 
 /// Downloads and installs the latest ffmpeg; with `have`, does nothing when that's the latest.

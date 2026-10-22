@@ -25,7 +25,7 @@ pub fn parse_clock(text: &str) -> Option<f64> {
     let mut total = 0.0;
     for p in &parts {
         let v: f64 = p.trim().parse().ok()?;
-        if v < 0.0 {
+        if !v.is_finite() || v < 0.0 {
             return None;
         }
         total = total * 60.0 + v;
@@ -395,6 +395,8 @@ mod tests {
         assert_eq!(parse_clock("65.5"), Some(65.5));
         assert_eq!(parse_clock("1:02:03"), Some(3723.0));
         assert_eq!(parse_clock("x"), None);
+        assert_eq!(parse_clock("nan"), None);
+        assert_eq!(parse_clock("inf"), None);
         assert_eq!(parse_clock("1:2:3:4"), None);
     }
 }

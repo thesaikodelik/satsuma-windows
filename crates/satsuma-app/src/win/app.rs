@@ -314,13 +314,26 @@ impl Controller {
     fn get_ffmpeg(&mut self, at: Point) {
         self.wheel.hide();
         super::ffmpeg::start();
+        if self.panel_has_job() {
+            // The panel is showing a job: the download goes on quietly and Settings shows it.
+            return;
+        }
         self.hud.show(at, HudModel { title: "Getting ffmpeg".into(), subtitle: "For audio and video · connecting…".into(), fraction: Some(0.0), error: false });
         self.hud_hide_at = None;
         self.ffmpeg_shown = true;
     }
 
+    /// A job is showing its progress in the small panel (so it isn't free for ffmpeg).
+    fn panel_has_job(&self) -> bool {
+        self.job.as_ref().is_some_and(|j| !j.on_wheel) || !self.queue.is_empty()
+    }
+
     fn poll_ffmpeg(&mut self) {
         use super::ffmpeg::State;
+        if self.ffmpeg_shown && self.panel_has_job() {
+            // A job took the panel over; leave it alone and finish quietly.
+            self.ffmpeg_shown = false;
+        }
         if !self.ffmpeg_shown {
             // Started from Settings, which shows the progress: only pick up the result.
             if let State::Ready(version) = super::ffmpeg::state() {
@@ -566,7 +579,7 @@ impl Controller {
                     self.start_estimates(&files, &items);
                 }
             }
-            UiEvent::HudClose if super::ffmpeg::busy() => super::ffmpeg::cancel(),
+            UiEvent::HudClose if self.ffmpeg_shown && super::ffmpeg::busy() => super::ffmpeg::cancel(),
             UiEvent::HudClose => match &self.job {
                 Some(job) => job.cancel.cancel(),
                 None => {
@@ -1182,7 +1195,7 @@ pub fn run() {
     if welcome && !controller.env.has_ffmpeg() {
         controller.deferred.push(Deferred::Alert(
             "Audio and video need ffmpeg".into(),
-            "Satsuma can get it for you (about 35 MB): drag an audio or video file, tap a wheel key and drop it on \"Get ffmpeg\" in the middle, or choose \"Get ffmpeg for Audio and Video\" in Satsuma's menu. Images, documents, PDFs, spreadsheets, subtitles and archives work without it.".into(),
+            format!("Satsuma can get it for you (about {}): drag an audio or video file, tap a wheel key and drop it on \"Get ffmpeg\" in the middle, or choose \"Get ffmpeg for Audio and Video\" in Satsuma's menu. Images, documents, PDFs, spreadsheets, subtitles and archives work without it.", super::ffmpeg::download_size()),
         ));
     }
     super::ffmpeg::clean_up();

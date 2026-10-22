@@ -413,7 +413,7 @@ impl State {
                 }
                 label("Keep ffmpeg up to date", FFMPEG_Y + 80.0);
                 self.paint_toggle(p, pal, Toggle::FfmpegUpdates, self.settings.ffmpeg_updates);
-                note("ffmpeg runs audio and video tools. Satsuma can get the free build by Gyan Doshi (about 35 MB) from GitHub.", FFMPEG_Y + 116.0, 34.0);
+                note(&format!("ffmpeg runs audio and video tools. Satsuma can get the free build by Gyan Doshi (about {}) from GitHub.", super::ffmpeg::download_size()), FFMPEG_Y + 116.0, 34.0);
                 note("Settings are saved as you change them.", H - 46.0, 30.0);
             }
         }

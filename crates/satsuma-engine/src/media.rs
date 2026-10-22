@@ -750,12 +750,47 @@ pub fn read_tags(env: &Env, input: &Path) -> Vec<(String, String)> {
     let Some(mut cmd) = env.ffmpeg_command() else { return Vec::new() };
     cmd.args(["-hide_banner", "-nostdin", "-i"]).arg(input).args(["-f", "ffmetadata", "-"]);
     let Ok((_, stdout, _)) = crate::process::capture(&mut cmd) else { return Vec::new() };
-    stdout
-        .lines()
-        .filter(|l| !l.starts_with(';') && !l.starts_with('['))
-        .filter_map(|l| l.split_once('='))
-        .map(|(k, v)| (k.trim().to_ascii_lowercase(), v.trim().to_string()))
-        .collect()
+    parse_ffmetadata(&stdout)
+}
+
+/// Reads `-f ffmetadata` output: `key=value` lines where `=`, `;`, `#`, `\` and line
+/// breaks are escaped with a backslash, and a trailing backslash continues the value.
+fn parse_ffmetadata(text: &str) -> Vec<(String, String)> {
+    let mut out = Vec::new();
+    let mut lines = text.lines();
+    while let Some(first) = lines.next() {
+        if first.starts_with(';') || first.starts_with('[') {
+            continue;
+        }
+        let mut line = first.to_string();
+        // An odd number of trailing backslashes escapes the line break.
+        while line.chars().rev().take_while(|c| *c == '\\').count() % 2 == 1 {
+            line.pop();
+            line.push('\n');
+            match lines.next() {
+                Some(next) => line.push_str(next),
+                None => break,
+            }
+        }
+        let (mut key, mut value, mut in_value, mut escaped) = (String::new(), String::new(), false, false);
+        for c in line.chars() {
+            let target = if in_value { &mut value } else { &mut key };
+            if escaped {
+                target.push(c);
+                escaped = false;
+            } else if c == '\\' {
+                escaped = true;
+            } else if c == '=' && !in_value {
+                in_value = true;
+            } else {
+                target.push(c);
+            }
+        }
+        if in_value {
+            out.push((key.trim().to_ascii_lowercase(), value.trim().to_string()));
+        }
+    }
+    out
 }
 
 /// Keep `start`..`end` seconds of an audio or video file.
@@ -938,9 +973,9 @@ pub fn peaks(env: &Env, input: &Path, count: usize) -> Result<Vec<f32>> {
     let per = (samples.len() as f64 / count as f64).max(1.0);
     let mut out = Vec::with_capacity(count);
     for k in 0..count {
-        let a = (k as f64 * per) as usize;
+        let a = ((k as f64 * per) as usize).min(samples.len() - 1);
         let b = (((k + 1) as f64 * per) as usize).min(samples.len()).max(a + 1);
-        let peak = samples[a.min(samples.len() - 1)..b].iter().map(|v| v.unsigned_abs()).max().unwrap_or(0);
+        let peak = samples[a..b].iter().map(|v| v.unsigned_abs()).max().unwrap_or(0);
         out.push(peak as f32 / 32768.0);
     }
     let top = out.iter().cloned().fold(0.0f32, f32::max).max(0.001);
@@ -950,6 +985,16 @@ pub fn peaks(env: &Env, input: &Path, count: usize) -> Result<Vec<f32>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ffmetadata_is_unescaped() {
+        let text = ";FFMETADATA1\ntitle=AC\\\\DC \\= Live\nartist=Me\\;You\ncomment=one\\\ntwo\nencoder=Lavf\n";
+        let tags = parse_ffmetadata(text);
+        assert_eq!(tags[0], ("title".into(), "AC\\DC = Live".into()));
+        assert_eq!(tags[1], ("artist".into(), "Me;You".into()));
+        assert_eq!(tags[2], ("comment".into(), "one\ntwo".into()));
+        assert_eq!(tags.len(), 4);
+    }
 
     #[test]
     fn atempo_stays_in_range() {

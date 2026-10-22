@@ -122,6 +122,8 @@ struct State {
     dragging: Option<u32>,
     pressed: Option<Hit>,
     canvas_held: bool,
+    /// The first half of a character typed beyond the basic plane (an emoji, say).
+    high_surrogate: Option<u16>,
     error: Option<String>,
     scale: f32,
 }
@@ -539,8 +541,19 @@ impl Handler for Messages {
                 Some(LRESULT(0))
             }
             WM_CHAR => {
-                let ch = char::from_u32(wparam.0 as u32)?;
+                let code = wparam.0 as u32;
                 let mut s = self.state.try_borrow_mut().ok()?;
+                // Emoji and other characters beyond the basic plane come as two UTF-16 halves.
+                if (0xD800..0xDC00).contains(&code) {
+                    s.high_surrogate = Some(code as u16);
+                    return Some(LRESULT(0));
+                }
+                let ch = if (0xDC00..0xE000).contains(&code) {
+                    let high = s.high_surrogate.take()?;
+                    char::decode_utf16([high, code as u16]).next()?.ok()?
+                } else {
+                    char::from_u32(code)?
+                };
                 let Some(id) = s.focus else { return Some(LRESULT(0)) };
                 let mut text = s.text_of(id).unwrap_or_default();
                 match ch {
@@ -634,7 +647,7 @@ pub fn render_png(mut form: Box<dyn Form>, sets: &[(u32, f64)], pal: &Palette, o
         form.tick();
         std::thread::sleep(std::time::Duration::from_millis(10));
     }
-    let state = State { form, focus: None, dragging: None, pressed: None, canvas_held: false, error: None, scale: 2.0 };
+    let state = State { form, focus: None, dragging: None, pressed: None, canvas_held: false, high_surrogate: None, error: None, scale: 2.0 };
     let (w, h) = (state.width(), state.content_height());
     let scale = 2.0;
     let (pw, ph) = ((w * scale).ceil() as i32, (h * scale).ceil() as i32);
@@ -654,7 +667,7 @@ pub struct FormWindow {
 impl FormWindow {
     pub fn open(form: Box<dyn Form>) -> FormWindow {
         let title = form.title();
-        let state = Rc::new(RefCell::new(State { form, focus: None, dragging: None, pressed: None, canvas_held: false, error: None, scale: 1.0 }));
+        let state = Rc::new(RefCell::new(State { form, focus: None, dragging: None, pressed: None, canvas_held: false, high_surrogate: None, error: None, scale: 1.0 }));
         let (w, h) = {
             let s = state.borrow();
             (s.width(), s.content_height())

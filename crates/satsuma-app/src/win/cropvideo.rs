@@ -148,17 +148,34 @@ impl Form for CropVideo {
                 if ratio > 0.0 {
                     // Keep the ratio: the height follows the width.
                     let (vw, vh) = (self.size.0 as f64, self.size.1 as f64);
-                    let h = ((x1 - x0) * vw / ratio) / vh;
-                    if t && !b {
-                        y0 = (y1 - h).max(0.0);
+                    if !l && !rt {
+                        // Only the top or bottom moved: the width follows the height, around the middle.
+                        let mut w = ((y1 - y0) * vh * ratio) / vw;
+                        if w > 1.0 {
+                            w = 1.0;
+                            let h = (vw / ratio) / vh;
+                            if t {
+                                y0 = y1 - h;
+                            } else {
+                                y1 = y0 + h;
+                            }
+                        }
+                        let cx = (start.0 + start.2 / 2.0).clamp(w / 2.0, 1.0 - w / 2.0);
+                        x0 = cx - w / 2.0;
+                        x1 = cx + w / 2.0;
                     } else {
-                        y1 = (y0 + h).min(1.0);
-                    }
-                    let w = ((y1 - y0) * vh * ratio) / vw;
-                    if l && !rt {
-                        x0 = x1 - w;
-                    } else {
-                        x1 = x0 + w;
+                        let h = ((x1 - x0) * vw / ratio) / vh;
+                        if t && !b {
+                            y0 = (y1 - h).max(0.0);
+                        } else {
+                            y1 = (y0 + h).min(1.0);
+                        }
+                        let w = ((y1 - y0) * vh * ratio) / vw;
+                        if l && !rt {
+                            x0 = x1 - w;
+                        } else {
+                            x1 = x0 + w;
+                        }
                     }
                 }
             }
