@@ -36,7 +36,8 @@ Install
 3. Satsuma's citrus icon appears in the notification area at the right end of the
    taskbar (it may be under the ^ arrow; drag it onto the taskbar to keep it visible).
    Turn on "Launch at login" in Settings > General to start it with Windows.
-4. For audio and video, install ffmpeg:  winget install Gyan.FFmpeg
+4. Audio and video need ffmpeg. Satsuma gets it for you: drag an audio or video file,
+   tap a wheel key and drop it on "Get ffmpeg" in the middle (or Settings > General).
    Images, documents, PDFs, spreadsheets, subtitles and archives work without it.
 
 Use

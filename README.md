@@ -8,7 +8,7 @@
 
 <p align="center">
   <img src="https://img.shields.io/badge/Windows-11-0078d4?logo=windows11&logoColor=white" alt="Windows 11">
-  <img src="https://img.shields.io/badge/version-1.1.0-ff6e17" alt="Version 1.1.0">
+  <img src="https://img.shields.io/badge/version-1.2.0-ff6e17" alt="Version 1.2.0">
   <img src="https://img.shields.io/badge/license-MIT-2ea44f" alt="MIT license">
   <img src="https://img.shields.io/badge/made%20with-Rust-b7410e?logo=rust&logoColor=white" alt="Made with Rust">
   <img src="https://img.shields.io/badge/size-13%20MB-6e40c9" alt="13 MB">
@@ -99,10 +99,13 @@ keys move around it, Enter applies.
 - **PDF → Excel** reads the pages, scanned ones too, and lays the text out in rows and columns.
 - **Slides → PDF** uses Microsoft PowerPoint, or LibreOffice when there's no PowerPoint.
 
-> **What needs extra software:** audio and video use [ffmpeg](https://ffmpeg.org)
-> (`winget install Gyan.FFmpeg`), which also brings WebP and AVIF output, PNG compression and
-> collages. HEIC output needs the HEIF and HEVC extensions from the Microsoft Store. Everything else
-> works out of the box, and petals your PC can't do yet are simply hidden.
+> **Audio and video** run on [ffmpeg](https://ffmpeg.org), which also brings WebP and AVIF output,
+> PNG compression and collages. You don't have to install it: drag an audio or video file, tap a
+> wheel key and drop it on **Get ffmpeg** in the middle (or use *Settings › General*), and Satsuma
+> downloads the free build by Gyan Doshi from GitHub, checks it, and keeps it up to date. An ffmpeg you
+> installed yourself (`winget install Gyan.FFmpeg`) is used as it is. HEIC output needs the HEIF and
+> HEVC extensions from the Microsoft Store. Everything else works out of the box, and petals your PC
+> can't do yet are simply hidden.
 
 ## 🧰 Tools
 

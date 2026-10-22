@@ -8,7 +8,7 @@
 
 <p align="center">
   <img src="https://img.shields.io/badge/Windows-11-0078d4?logo=windows11&logoColor=white" alt="Windows 11">
-  <img src="https://img.shields.io/badge/version-1.1.0-ff6e17" alt="نسخه ۱٫۱٫۰">
+  <img src="https://img.shields.io/badge/version-1.2.0-ff6e17" alt="نسخه ۱٫۲٫۰">
   <img src="https://img.shields.io/badge/license-MIT-2ea44f" alt="مجوز MIT">
   <img src="https://img.shields.io/badge/made%20with-Rust-b7410e?logo=rust&logoColor=white" alt="ساخته‌شده با Rust">
   <img src="https://img.shields.io/badge/size-13%20MB-6e40c9" alt="۱۳ مگابایت">
@@ -118,10 +118,12 @@ PDFها یکی می‌شوند و عکس پس‌زمینه می‌گیرد. هم
 - **PDF به Excel** صفحه‌ها را می‌خواند (اسکن‌شده‌ها را هم) و متن را در ردیف و ستون می‌چیند.
 - **اسلاید به PDF** با Microsoft PowerPoint انجام می‌شود، و اگر PowerPoint نباشد با LibreOffice.
 
-> **چه چیزهایی برنامه‌ی دیگری لازم دارند:** صدا و ویدیو با [ffmpeg](https://ffmpeg.org) کار می‌کنند
-> (`winget install Gyan.FFmpeg`)؛ خروجی WebP و AVIF، فشرده‌سازی PNG و کلاژ هم با همین. خروجی HEIC
-> افزونه‌های HEIF و HEVC را از Microsoft Store می‌خواهد. بقیه بدون نیاز به چیز دیگری کار می‌کنند، و
-> گلبرگ کارهایی که کامپیوترتان هنوز نمی‌تواند اصلاً نشان داده نمی‌شود.
+> **صدا و ویدیو** با [ffmpeg](https://ffmpeg.org) کار می‌کنند؛ خروجی WebP و AVIF، فشرده‌سازی PNG و کلاژ
+> هم با همین. لازم نیست نصبش کنید: یک فایل صوتی یا ویدیویی را بکشید، کلید چرخ را بزنید و روی **Get ffmpeg**
+> وسط چرخ رها کنید (یا از *Settings › General*)، تا ساتسوما نسخه‌ی رایگان Gyan Doshi را از GitHub بگیرد،
+> بررسی‌اش کند و به‌روز نگهش دارد. اگر خودتان ffmpeg نصب کرده‌اید (`winget install Gyan.FFmpeg`)، همان
+> استفاده می‌شود. خروجی HEIC افزونه‌های HEIF و HEVC را از Microsoft Store می‌خواهد. بقیه بدون نیاز به چیز
+> دیگری کار می‌کنند، و گلبرگ کارهایی که کامپیوترتان هنوز نمی‌تواند اصلاً نشان داده نمی‌شود.
 
 <a id="tools"></a>
 
