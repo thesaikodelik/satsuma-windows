@@ -25,6 +25,38 @@ pub enum State {
 
 static STATE: Mutex<State> = Mutex::new(State::Idle);
 static CANCEL: AtomicBool = AtomicBool::new(false);
+static AUTO_UPDATE: AtomicBool = AtomicBool::new(true);
+
+/// Follows *Settings › General › Keep ffmpeg up to date*.
+pub fn set_auto_update(on: bool) {
+    AUTO_UPDATE.store(on, Ordering::SeqCst);
+}
+
+/// Removes the ffmpeg Satsuma downloaded.
+pub fn remove() -> Result<(), String> {
+    let dir = satsuma_engine::env::managed_ffmpeg_dir().ok_or("There's no folder for local app data.")?;
+    if busy() {
+        return Err("ffmpeg is being downloaded.".into());
+    }
+    std::fs::remove_dir_all(&dir).map_err(|_| "ffmpeg is in use. Try again once Satsuma has finished its work.".to_string())
+}
+
+/// What Settings shows: a line about ffmpeg, and whether Satsuma's own copy can be removed.
+pub fn describe() -> (String, bool) {
+    match state() {
+        State::Downloading { done, total } => return (format!("Downloading ffmpeg: {}.", progress_text(done, total)), false),
+        State::Unpacking => return ("Unpacking ffmpeg…".into(), false),
+        State::Failed(e) => return (format!("Couldn't get ffmpeg. {e}"), false),
+        _ => {}
+    }
+    if let Some((v, _)) = satsuma_engine::env::managed_ffmpeg() {
+        return (format!("ffmpeg {v}, downloaded by Satsuma."), true);
+    }
+    match satsuma_engine::win::env().ffmpeg.as_ref().filter(|p| p.is_file()) {
+        Some(p) => (format!("Using ffmpeg from {}.", p.parent().map(|d| d.display().to_string()).unwrap_or_default()), false),
+        None => ("Not installed: audio and video tools are off.".into(), false),
+    }
+}
 
 pub fn state() -> State {
     STATE.lock().map(|s| s.clone()).unwrap_or(State::Idle)
@@ -74,7 +106,7 @@ pub fn start() {
 /// Brings an ffmpeg Satsuma downloaded earlier up to date, quietly (from the update check).
 pub fn refresh_quietly() {
     let Some((have, _)) = satsuma_engine::env::managed_ffmpeg() else { return };
-    if busy() {
+    if busy() || !AUTO_UPDATE.load(Ordering::SeqCst) {
         return;
     }
     match get(Some(&have)) {

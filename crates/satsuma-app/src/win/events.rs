@@ -29,6 +29,8 @@ pub enum UiEvent {
     RestartToUpdate,
     /// Files were dropped on the hub's "Get ffmpeg": download it.
     GetFfmpeg,
+    /// Settings got or removed ffmpeg: look for the tools again.
+    FfmpegChanged,
     /// The hub of a wheel showing a job's progress was clicked: stop the job.
     WheelCancelJob,
 }

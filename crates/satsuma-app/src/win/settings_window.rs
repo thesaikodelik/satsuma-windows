@@ -85,6 +85,7 @@ enum Picker {
 enum Toggle {
     Sound,
     Login,
+    FfmpegUpdates,
 }
 
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -97,6 +98,8 @@ enum Id {
     Link(usize),
     /// About: Check Now, or Restart to Update once one is downloaded.
     UpdateButton,
+    /// General: Get ffmpeg, or Remove Satsuma's own copy.
+    FfmpegButton,
     Done,
 }
 
@@ -127,6 +130,8 @@ const CONTROL_X: f32 = W - 20.0 - CONTROL_W;
 const PREVIEW_Y: f32 = 54.0;
 /// The sound switch's row on the Shortcuts tab.
 const SOUND_Y: f32 = 424.0;
+/// General's audio and video section.
+const FFMPEG_Y: f32 = 214.0;
 
 fn row(y: f32) -> R {
     (CONTROL_X, y, CONTROL_W, 30.0)
@@ -192,6 +197,12 @@ impl State {
                 v.push((Id::Picker(Picker::Terminal), row(70.0)));
                 v.push((Id::Picker(Picker::Float), row(112.0)));
                 v.push((Id::Toggle(Toggle::Login), (W - 20.0 - 44.0, 160.0, 44.0, 24.0)));
+                let (_, removable) = super::ffmpeg::describe();
+                let missing = !removable && !satsuma_engine::win::env().ffmpeg.as_ref().is_some_and(|p| p.is_file());
+                if (removable || missing) && !super::ffmpeg::busy() {
+                    v.push((Id::FfmpegButton, (W - 20.0 - 120.0, FFMPEG_Y + 30.0, 120.0, 30.0)));
+                }
+                v.push((Id::Toggle(Toggle::FfmpegUpdates), (W - 20.0 - 44.0, FFMPEG_Y + 83.0, 44.0, 24.0)));
             }
         }
         v.push((Id::Done, (W - 20.0 - 110.0, H - 46.0, 110.0, 30.0)));
@@ -213,6 +224,7 @@ impl State {
 
     fn moving(&self) -> bool {
         (self.tab == ABOUT && matches!(super::update::status(), super::update::Status::Checking | super::update::Status::Downloading(_)))
+            || (self.tab == GENERAL && super::ffmpeg::busy())
             || self.tab == SHORTCUTS || self.pill.is_some_and(|(_, _, t)| t.elapsed().as_secs_f32() < PILL_SECONDS) || self.preview.liquid.moving()
     }
 
@@ -322,6 +334,11 @@ impl State {
                 Ok(()) => self.login = system::launch_at_login(),
                 Err(e) => system::alert("Couldn't update Launch at Login", &e),
             },
+            Toggle::FfmpegUpdates => {
+                self.settings.ffmpeg_updates = !self.settings.ffmpeg_updates;
+                super::ffmpeg::set_auto_update(self.settings.ffmpeg_updates);
+                self.changed();
+            }
         }
     }
 
@@ -377,6 +394,26 @@ impl State {
                 self.paint_picker(p, pal, Picker::Float);
                 label("Launch at login", 157.0);
                 self.paint_toggle(p, pal, Toggle::Login, self.login);
+                header("AUDIO AND VIDEO", FFMPEG_Y);
+                let (line, _) = super::ffmpeg::describe();
+                let failed = matches!(super::ffmpeg::state(), super::ffmpeg::State::Failed(_));
+                p.text(&line, (ROW_LABEL_X, FFMPEG_Y + 28.0, W - 40.0 - 132.0, 36.0), 12.0, Weight::Regular, if failed { pal.error } else { pal.label }, Align::Leading, true);
+                if let Some(r) = self.rect_of(Id::FfmpegButton) {
+                    let (_, removable) = super::ffmpeg::describe();
+                    let (radius, down) = (if pal.glass { r.3 / 2.0 } else { 6.0 }, self.pressed == Some(Id::FfmpegButton));
+                    if removable {
+                        let lit = self.hover == Some(Id::FfmpegButton);
+                        p.fill_round_rect(r.0, r.1, r.2, r.3, radius, pal.control.alpha(if lit || down { 2.2 } else if pal.glass { 1.4 } else { 1.0 }));
+                        p.stroke_round_rect(r.0 + 0.5, r.1 + 0.5, r.2 - 1.0, r.3 - 1.0, radius - 0.5, if pal.glass { pal.rim } else { pal.separator }, 1.0);
+                        p.text("Remove", r, 12.5, Weight::Semibold, pal.label, Align::Center, false);
+                    } else {
+                        p.fill_round_rect(r.0, r.1, r.2, r.3, radius, if down { Rgba(0.85, 0.36, 0.07, 1.0) } else { ACCENT });
+                        p.text("Get ffmpeg", r, 12.5, Weight::Semibold, Rgba::WHITE, Align::Center, false);
+                    }
+                }
+                label("Keep ffmpeg up to date", FFMPEG_Y + 80.0);
+                self.paint_toggle(p, pal, Toggle::FfmpegUpdates, self.settings.ffmpeg_updates);
+                note("ffmpeg runs audio and video tools. Satsuma can get the free build by Gyan Doshi (about 35 MB) from GitHub.", FFMPEG_Y + 116.0, 34.0);
                 note("Settings are saved as you change them.", H - 46.0, 30.0);
             }
         }
@@ -689,7 +726,7 @@ impl State {
             return true;
         }
         if self.tab == ABOUT {
-            let hover = self.hit(x, y).filter(|id| matches!(id, Id::Link(_) | Id::UpdateButton));
+            let hover = self.hit(x, y).filter(|id| matches!(id, Id::Link(_) | Id::UpdateButton | Id::FfmpegButton));
             if hover != self.hover {
                 self.hover = hover;
                 return true;
@@ -915,6 +952,20 @@ impl Handler for Messages {
                     Some(Id::Link(k)) => {
                         let url = CREDITS.get(k).map(|c| c.2).unwrap_or(SPONSOR_URL);
                         system::open_item(std::path::Path::new(url));
+                    }
+                    Some(Id::FfmpegButton) => {
+                        let (_, removable) = super::ffmpeg::describe();
+                        if removable {
+                            match super::ffmpeg::remove() {
+                                Ok(()) => events::post(UiEvent::FfmpegChanged),
+                                Err(e) => system::alert("Couldn't remove ffmpeg", &e),
+                            }
+                        } else {
+                            super::ffmpeg::start();
+                            let s = self.state.borrow();
+                            animate(hwnd, &s);
+                        }
+                        refresh(hwnd);
                     }
                     Some(Id::UpdateButton) => {
                         use super::update::Status;

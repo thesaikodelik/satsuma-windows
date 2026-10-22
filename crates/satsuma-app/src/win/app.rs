@@ -320,10 +320,16 @@ impl Controller {
     }
 
     fn poll_ffmpeg(&mut self) {
+        use super::ffmpeg::State;
         if !self.ffmpeg_shown {
+            // Started from Settings, which shows the progress: only pick up the result.
+            if let State::Ready(version) = super::ffmpeg::state() {
+                self.env = Arc::new(satsuma_engine::win::refresh_env().clone());
+                debug!("ffmpeg {version} installed from Settings: {:?}", self.env.ffmpeg);
+                super::ffmpeg::reset();
+            }
             return;
         }
-        use super::ffmpeg::State;
         match super::ffmpeg::state() {
             State::Downloading { done, total } => {
                 let fraction = if total > 0 { done as f64 / total as f64 } else { 0.0 };
@@ -575,6 +581,10 @@ impl Controller {
             }
             UiEvent::EditorApply { op, files, at } => self.enqueue(PendingJob { op, files, at, on_wheel: false }),
             UiEvent::RestartToUpdate => self.command(CMD_UPDATE),
+            UiEvent::FfmpegChanged => {
+                self.env = Arc::new(satsuma_engine::win::refresh_env().clone());
+                debug!("ffmpeg now {:?}", self.env.ffmpeg);
+            }
             UiEvent::GetFfmpeg => {
                 let at = self.wheel.anchor();
                 self.get_ffmpeg(at)
@@ -1176,6 +1186,7 @@ pub fn run() {
         ));
     }
     super::ffmpeg::clean_up();
+    super::ffmpeg::set_auto_update(controller.settings.ffmpeg_updates);
     debug!("app started; settings {}; ffmpeg {:?}; browser {:?}", controller.settings_path.display(), controller.env.ffmpeg, controller.env.browser);
     CONTROLLER.with(|c| *c.borrow_mut() = Some(controller));
 

@@ -105,6 +105,8 @@ pub struct Settings {
     /// How see-through Liquid surfaces are, 0 (frosted) to 100 (clear).
     pub transparency: u8,
     pub has_completed_welcome: bool,
+    /// Windows: keep an ffmpeg Satsuma downloaded up to date.
+    pub ffmpeg_updates: bool,
 }
 
 impl Default for Settings {
@@ -122,6 +124,7 @@ impl Default for Settings {
             appearance: Appearance::Liquid,
             transparency: 45,
             has_completed_welcome: false,
+            ffmpeg_updates: true,
         }
     }
 }
