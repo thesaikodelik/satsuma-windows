@@ -70,9 +70,9 @@ fn sample_png(dir: &Path, name: &str, w: u32, h: u32) -> PathBuf {
     if env().has_ffmpeg() {
         ffmpeg(&["-f", "lavfi", "-i", &format!("testsrc2=s={w}x{h}"), "-frames:v", "1", p.to_str().unwrap()]);
     } else {
-        // A tiny valid PNG via sips from a generated TIFF is overkill; use a known 1x1 PNG.
-        let png = b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR\0\0\0\x01\0\0\0\x01\x08\x06\0\0\0\x1f\x15\xc4\x89\0\0\0\rIDATx\x9cc\xf8\xcf\xc0\xf0\x1f\0\x05\0\x01\xff\x89\x99=\x1d\0\0\0\0IEND\xaeB`\x82";
-        std::fs::write(&p, png).unwrap();
+        // A colourful gradient of the right size, drawn without ffmpeg.
+        let img = image::RgbImage::from_fn(w, h, |x, y| image::Rgb([(x * 255 / w.max(1)) as u8, (y * 255 / h.max(1)) as u8, 128]));
+        img.save(&p).unwrap();
     }
     p
 }
@@ -82,7 +82,8 @@ fn images_convert_to_every_output_format() {
     let dir = tempfile::tempdir().unwrap();
     let png = sample_png(dir.path(), "photo.png", 320, 200);
     for target in [Format::Jpg, Format::Heic, Format::Tiff, Format::Avif, Format::Bmp, Format::Pdf, Format::Webp] {
-        if target == Format::Webp && !env().has_encoder("libwebp") {
+        // WebP, AVIF and HEIC encoders depend on the PC (ffmpeg, Store extensions).
+        if !satsuma_engine::capability::conversion_available(env(), Format::Png, target) {
             continue;
         }
         let out = convert(&png, target);
@@ -90,6 +91,10 @@ fn images_convert_to_every_output_format() {
         assert!(size(&out) > 0, "{target:?}");
     }
     // HEIC back to JPG collides with the earlier photo.jpg.
+    if !dir.path().join("photo.heic").exists() {
+        no_partials_left(dir.path());
+        return;
+    }
     let jpg2 = convert(&dir.path().join("photo.heic"), Format::Jpg);
     assert_eq!(jpg2.file_name().unwrap(), "photo 2.jpg");
     no_partials_left(dir.path());
@@ -590,6 +595,9 @@ fn edit_photo_saves_an_edited_copy() {
     assert_eq!(satsuma_engine::imaging::size(&img), (320.0, 200.0));
     assert_ne!(std::fs::read(&out).unwrap(), std::fs::read(&jpg).unwrap());
     // HEIC keeps its format.
+    if !satsuma_engine::capability::conversion_available(env(), Format::Png, Format::Heic) {
+        return;
+    }
     let heic = convert(&png, Format::Heic);
     let edited = apply(&[heic], Operation::Adjust(adj)).remove(0);
     assert_eq!(edited.file_name().unwrap(), "photo Edited.heic");
