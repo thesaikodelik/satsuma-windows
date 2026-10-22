@@ -32,6 +32,7 @@ mod droptarget;
 mod editor;
 mod estimates;
 mod events;
+mod ffmpeg;
 mod float;
 mod form;
 mod forms;

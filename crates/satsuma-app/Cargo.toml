@@ -39,6 +39,8 @@ image = { version = "0.25", default-features = false, features = ["png"] }
 tiny-skia = "0.12"
 tempfile = "3"
 zip = { version = "9", default-features = false, features = ["deflate"] }
+ureq = { version = "2", features = ["json"] }
+sha2 = "0.10"
 
 [target.'cfg(windows)'.build-dependencies]
 embed-resource = "3"

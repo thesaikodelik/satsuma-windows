@@ -38,7 +38,9 @@ pub struct WheelModel {
     pub hub: Vec<String>,
     /// A downloaded update waiting for a restart (its version).
     pub update: Option<String>,
-    /// Files are held over the hub while an update is waiting: dropping installs it.
+    /// Audio or video is being dragged and ffmpeg is missing: the hub offers to get it.
+    pub get_ffmpeg: bool,
+    /// Files are held over the hub while it offers something (an update, ffmpeg).
     pub hub_hot: bool,
     /// Output size per petal ("1.4 MB", "≈ 12 MB"); `None` when it can't be previewed.
     pub estimates: HashMap<WheelItem, Option<String>>,
@@ -84,6 +86,7 @@ impl WheelModel {
             combos: WheelCombos::default(),
             hub: Vec::new(),
             update: None,
+            get_ffmpeg: false,
             hub_hot: false,
             estimates: HashMap::new(),
             estimating: false,
@@ -237,6 +240,21 @@ pub fn paint(p: &Painter, m: &WheelModel, pal: &Palette, behind: Option<&Behind>
         p.stroke_circle(c, c, backdrop - 0.25, pal.separator, 0.5);
     }
 
+    if m.items.is_empty() && m.get_ffmpeg {
+        // Audio or video without ffmpeg: no petals yet, only the offer to get it in the hub.
+        let r = (g.inner - 6.0) as f32;
+        let accent = if pal.glass { GLASS_ORANGE_LIGHT } else { ACCENT };
+        if m.hub_hot {
+            p.fill_circle(c, c, r, if pal.glass { GLASS_ORANGE } else { ACCENT });
+        } else {
+            p.stroke_circle(c, c, r - 0.6, accent.alpha(0.8), 1.4);
+        }
+        let color = if m.hub_hot { Rgba::WHITE } else { accent };
+        p.text_centered("Get", c, c - 8.0, 13.0, Weight::Bold, color);
+        p.text_centered("ffmpeg", c, c + 8.0, 13.0, Weight::Bold, color);
+        p.text("Audio and video need ffmpeg. Drop here to get it (35 MB).", (c - 80.0, c + r + 10.0, 160.0, 40.0), 10.0, Weight::Semibold, pal.secondary, Align::Center, true);
+        return;
+    }
     if m.items.is_empty() {
         p.text(empty_message(m.mode), (c - 85.0, c - 30.0, 170.0, 60.0), 12.0, Weight::Semibold, pal.secondary, Align::Center, true);
         return;
@@ -298,9 +316,10 @@ pub fn paint(p: &Painter, m: &WheelModel, pal: &Palette, behind: Option<&Behind>
 
     let selected = m.selected.and_then(|i| m.items.get(i));
     let accent = if pal.glass { GLASS_ORANGE_LIGHT } else { ACCENT };
-    if selected.is_some() || !m.hub.is_empty() || m.update.is_some() {
+    let offer = m.update.is_some() || m.get_ffmpeg;
+    if selected.is_some() || !m.hub.is_empty() || offer {
         let r = (g.inner - 6.0) as f32;
-        if m.update.is_some() && m.hub_hot && selected.is_none() {
+        if offer && m.hub_hot && selected.is_none() {
             // "Drop here to update": the hub lights up like a petal.
             p.fill_circle(c, c, r, if pal.glass { GLASS_ORANGE } else { ACCENT });
             p.stroke_circle(c, c, r - 0.6, if pal.glass { GLASS_ORANGE_LIGHT.alpha(0.7) } else { ACCENT }, 1.2);
@@ -344,6 +363,12 @@ pub fn paint(p: &Painter, m: &WheelModel, pal: &Palette, behind: Option<&Behind>
         let color = if m.hub_hot { Rgba::WHITE } else { accent };
         p.text_centered("Update", c, c - 8.0, 14.0, Weight::Bold, color);
         p.text_centered("ready", c, c + 9.0, 14.0, Weight::Bold, color);
+    } else if m.get_ffmpeg {
+        // Audio and video need ffmpeg: dropping here downloads it (the files stay put).
+        let color = if m.hub_hot { Rgba::WHITE } else { accent };
+        p.text_centered("Get", c, c - 12.0, 13.0, Weight::Bold, color);
+        p.text_centered("ffmpeg", c, c + 3.0, 13.0, Weight::Bold, color);
+        p.text_centered("for audio & video", c, c + 18.0, 7.0, Weight::Semibold, if m.hub_hot { Rgba::WHITE } else { pal.secondary });
     } else if !m.hub.is_empty() {
         let n = m.hub.len() as f32;
         for (k, line) in m.hub.iter().enumerate() {
@@ -511,7 +536,7 @@ impl Drops {
         }
         let hit = s.hit(x, y);
         set_selected(self.hwnd.get(), &mut s, hit);
-        let hot = hit.is_none() && s.model.update.is_some() && s.in_hub(x, y);
+        let hot = hit.is_none() && (s.model.update.is_some() || s.model.get_ffmpeg) && s.in_hub(x, y);
         if hot != s.model.hub_hot {
             s.model.hub_hot = hot;
             render(self.hwnd.get(), &s);
@@ -576,6 +601,10 @@ impl DropHandler for Drops {
             // On the hub while an update waits: install it (the files stay where they are).
             None if s.model.update.is_some() && s.in_hub(x, y) => {
                 events::post(UiEvent::RestartToUpdate);
+                DROPEFFECT_NONE
+            }
+            None if s.model.get_ffmpeg && s.in_hub(x, y) => {
+                events::post(UiEvent::GetFfmpeg);
                 DROPEFFECT_NONE
             }
             // Off a petal: refuse, so the drag is cancelled.

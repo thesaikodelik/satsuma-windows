@@ -37,6 +37,7 @@ const CMD_HELP: u32 = 2;
 const CMD_QUIT: u32 = 3;
 const CMD_SETTINGS: u32 = 6;
 const CMD_UPDATE: u32 = 7;
+const CMD_FFMPEG: u32 = 8;
 
 const WM_TRAY: u32 = WM_APP + 1;
 const TIMER_TICK: usize = 1;
@@ -183,6 +184,8 @@ struct Controller {
     idle_since: Option<Instant>,
     /// The automatic install failed once; leave it to the menu or the next start.
     auto_update_failed: bool,
+    /// The small panel is showing ffmpeg being downloaded.
+    ffmpeg_shown: bool,
 }
 
 thread_local! {
@@ -263,6 +266,7 @@ impl Controller {
             combos: self.settings.wheels,
             hub: satsuma_core::wheel::hub_caption(files.len(), bytes),
             update: self.update_ready.clone(),
+            get_ffmpeg: self.offers_ffmpeg(files),
             hub_hot: false,
             estimates: Default::default(),
             estimating: false,
@@ -297,6 +301,60 @@ impl Controller {
         }
     }
 
+    // ------------------------------------------------------------ getting ffmpeg
+
+    /// The hub offers ffmpeg when audio or video is dragged and it's missing.
+    fn offers_ffmpeg(&self, files: &[PathBuf]) -> bool {
+        use satsuma_core::{Category, Format};
+        !self.env.has_ffmpeg()
+            && !super::ffmpeg::busy()
+            && files.iter().any(|f| Format::from_path(f).is_some_and(|f| matches!(f.category(), Category::Audio | Category::Video)))
+    }
+
+    fn get_ffmpeg(&mut self, at: Point) {
+        self.wheel.hide();
+        super::ffmpeg::start();
+        self.hud.show(at, HudModel { title: "Getting ffmpeg".into(), subtitle: "For audio and video · connecting…".into(), fraction: Some(0.0), error: false });
+        self.hud_hide_at = None;
+        self.ffmpeg_shown = true;
+    }
+
+    fn poll_ffmpeg(&mut self) {
+        if !self.ffmpeg_shown {
+            return;
+        }
+        use super::ffmpeg::State;
+        match super::ffmpeg::state() {
+            State::Downloading { done, total } => {
+                let fraction = if total > 0 { done as f64 / total as f64 } else { 0.0 };
+                self.hud.update(HudModel { title: "Getting ffmpeg".into(), subtitle: super::ffmpeg::progress_text(done, total), fraction: Some(fraction), error: false });
+            }
+            State::Unpacking => {
+                self.hud.update(HudModel { title: "Getting ffmpeg".into(), subtitle: "Unpacking…".into(), fraction: Some(1.0), error: false });
+            }
+            State::Ready(version) => {
+                self.env = Arc::new(satsuma_engine::win::refresh_env().clone());
+                debug!("ffmpeg {version} installed: {:?}", self.env.ffmpeg);
+                self.hud.update(HudModel { title: "ffmpeg is ready".into(), subtitle: "Audio and video tools are on.".into(), fraction: Some(1.0), error: false });
+                self.hud_hide_at = Some(Instant::now() + Duration::from_secs(3));
+                self.ffmpeg_shown = false;
+                super::ffmpeg::reset();
+            }
+            State::Failed(e) => {
+                self.hud.update(HudModel { title: "Couldn't get ffmpeg".into(), subtitle: e, fraction: None, error: true });
+                self.hud_hide_at = Some(Instant::now() + Duration::from_secs(10));
+                self.ffmpeg_shown = false;
+                super::ffmpeg::reset();
+            }
+            State::Idle => {
+                // Cancelled from the panel.
+                self.hud.hide();
+                self.hud_hide_at = None;
+                self.ffmpeg_shown = false;
+            }
+        }
+    }
+
     // ------------------------------------------------------------ the 60 Hz tick
 
     fn tick(&mut self) {
@@ -308,6 +366,7 @@ impl Controller {
             let tip = self.tip();
             self.tray.update(&tip);
         }
+        self.poll_ffmpeg();
         self.sample_drag();
         for event in events::drain() {
             self.handle(event);
@@ -501,6 +560,7 @@ impl Controller {
                     self.start_estimates(&files, &items);
                 }
             }
+            UiEvent::HudClose if super::ffmpeg::busy() => super::ffmpeg::cancel(),
             UiEvent::HudClose => match &self.job {
                 Some(job) => job.cancel.cancel(),
                 None => {
@@ -515,6 +575,10 @@ impl Controller {
             }
             UiEvent::EditorApply { op, files, at } => self.enqueue(PendingJob { op, files, at, on_wheel: false }),
             UiEvent::RestartToUpdate => self.command(CMD_UPDATE),
+            UiEvent::GetFfmpeg => {
+                let at = self.wheel.anchor();
+                self.get_ffmpeg(at)
+            }
             UiEvent::SettingsEdited(edited) => {
                 let welcome = self.settings.has_completed_welcome;
                 self.settings = *edited;
@@ -764,6 +828,7 @@ impl Controller {
     fn command(&mut self, id: u32) {
         match id {
             CMD_HELP => self.deferred.push(Deferred::Welcome),
+            CMD_FFMPEG => self.get_ffmpeg(super::system::cursor_pos()),
             CMD_QUIT => unsafe { PostQuitMessage(0) },
             CMD_SETTINGS => super::settings_window::open(&self.settings),
             CMD_UPDATE => {
@@ -880,11 +945,14 @@ impl Menu {
 
 }
 
-fn build_menu(working: bool, update: Option<&str>) -> Menu {
+fn build_menu(working: bool, update: Option<&str>, ffmpeg_missing: bool) -> Menu {
     let menu = Menu::new();
     menu.item(0, if working { "Satsuma is working…" } else { "Satsuma is ready" }, false, false);
     if let Some(v) = update {
         menu.item(CMD_UPDATE, &format!("Restart to Update ({v})"), false, true);
+    }
+    if ffmpeg_missing {
+        menu.item(CMD_FFMPEG, "Get ffmpeg for Audio and Video…", false, true);
     }
     menu.separator();
     menu.item(CMD_CONVERT, "Convert Files…", false, true);
@@ -897,8 +965,8 @@ fn build_menu(working: bool, update: Option<&str>) -> Menu {
 
 /// Shows the tray menu and runs the chosen command (outside the controller borrow while open).
 fn show_menu(hwnd: HWND) {
-    let Some((working, update)) = with_controller(|c| (c.job.is_some(), c.update_ready.clone())) else { return };
-    let menu = build_menu(working, update.as_deref());
+    let Some((working, update, missing)) = with_controller(|c| (c.job.is_some(), c.update_ready.clone(), !c.env.has_ffmpeg() && !super::ffmpeg::busy())) else { return };
+    let menu = build_menu(working, update.as_deref(), missing);
     let mut pt = POINT::default();
     let cmd = unsafe {
         let _ = GetCursorPos(&mut pt);
@@ -1075,6 +1143,7 @@ pub fn run() {
         update_ready: None,
         idle_since: None,
         auto_update_failed: false,
+        ffmpeg_shown: false,
     };
     #[cfg(debug_assertions)]
     if let Some(event) = selftest_drop() {
@@ -1099,12 +1168,14 @@ pub fn run() {
         controller.save_settings();
         controller.deferred.push(Deferred::Welcome);
     }
-    if !controller.env.has_ffmpeg() {
+    // Only once, at the first start: afterwards the wheel's hub and the menu offer it.
+    if welcome && !controller.env.has_ffmpeg() {
         controller.deferred.push(Deferred::Alert(
             "Audio and video need ffmpeg".into(),
-            "Install it with `winget install Gyan.FFmpeg` in a terminal, then restart Satsuma. Images, documents, PDFs, spreadsheets, subtitles and archives work without it.".into(),
+            "Satsuma can get it for you (about 35 MB): drag an audio or video file, tap a wheel key and drop it on \"Get ffmpeg\" in the middle, or choose \"Get ffmpeg for Audio and Video\" in Satsuma's menu. Images, documents, PDFs, spreadsheets, subtitles and archives work without it.".into(),
         ));
     }
+    super::ffmpeg::clean_up();
     debug!("app started; settings {}; ffmpeg {:?}; browser {:?}", controller.settings_path.display(), controller.env.ffmpeg, controller.env.browser);
     CONTROLLER.with(|c| *c.borrow_mut() = Some(controller));
 

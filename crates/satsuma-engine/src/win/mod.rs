@@ -12,12 +12,23 @@ pub mod textutil;
 pub mod wic;
 
 use crate::Env;
-use std::sync::OnceLock;
+use std::sync::{OnceLock, RwLock};
 
 /// The tool environment, for backends whose callers do not pass one (fallback decoding).
 pub fn env() -> &'static Env {
-    static ENV: OnceLock<Env> = OnceLock::new();
-    ENV.get_or_init(Env::discover)
+    let lock = ENV.get_or_init(|| RwLock::new(Box::leak(Box::new(Env::discover()))));
+    *lock.read().unwrap_or_else(|e| e.into_inner())
+}
+
+static ENV: OnceLock<RwLock<&'static Env>> = OnceLock::new();
+
+/// Looks for the tools again (after Satsuma downloaded ffmpeg). The old environment is
+/// leaked on purpose: callers may still hold it, and it happens once or twice per run.
+pub fn refresh_env() -> &'static Env {
+    let fresh: &'static Env = Box::leak(Box::new(Env::discover()));
+    let lock = ENV.get_or_init(|| RwLock::new(fresh));
+    *lock.write().unwrap_or_else(|e| e.into_inner()) = fresh;
+    fresh
 }
 
 /// Joins the calling thread to a COM apartment for WIC and WinRT. Threads that already

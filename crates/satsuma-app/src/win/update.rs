@@ -136,6 +136,8 @@ pub fn start() {
         std::thread::sleep(first);
         loop {
             run_check(false);
+            // An ffmpeg Satsuma downloaded is kept current too; it takes over at the next start.
+            super::ffmpeg::refresh_quietly();
             std::thread::sleep(EVERY);
         }
     });

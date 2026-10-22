@@ -97,11 +97,30 @@ fn find_browser() -> Option<PathBuf> {
     candidates.into_iter().find(|p| is_executable(p))
 }
 
+/// Where Satsuma keeps the ffmpeg it downloads itself: `%LOCALAPPDATA%\Satsumafmpeg`, one
+/// folder per version, with `current` naming the one in use.
+#[cfg(windows)]
+pub fn managed_ffmpeg_dir() -> Option<PathBuf> {
+    std::env::var_os("LOCALAPPDATA").map(|d| PathBuf::from(d).join("Satsuma").join("ffmpeg"))
+}
+
+/// The ffmpeg Satsuma downloaded, and its version, if there is one.
+#[cfg(windows)]
+pub fn managed_ffmpeg() -> Option<(String, PathBuf)> {
+    let dir = managed_ffmpeg_dir()?;
+    let version = std::fs::read_to_string(dir.join("current")).ok()?.trim().to_string();
+    let exe = dir.join(&version).join("ffmpeg.exe");
+    (!version.is_empty() && is_executable(&exe)).then_some((version, exe))
+}
+
 #[cfg(windows)]
 fn find_ffmpeg() -> Option<PathBuf> {
     let mut candidates: Vec<PathBuf> = Vec::new();
     if let Some(p) = std::env::var_os("SATSUMA_FFMPEG") {
         candidates.push(PathBuf::from(p));
+    }
+    if let Some((_, exe)) = managed_ffmpeg() {
+        candidates.push(exe);
     }
     if let Ok(exe) = std::env::current_exe() {
         if let Some(dir) = exe.parent() {
