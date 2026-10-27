@@ -8,7 +8,7 @@
 
 <p align="center">
   <img src="https://img.shields.io/badge/Windows-11-0078d4?logo=windows11&logoColor=white" alt="Windows 11">
-  <img src="https://img.shields.io/badge/version-1.2.0-ff6e17" alt="Version 1.2.0">
+  <img src="https://img.shields.io/badge/version-1.3.0-ff6e17" alt="Version 1.3.0">
   <img src="https://img.shields.io/badge/license-MIT-2ea44f" alt="MIT license">
   <img src="https://img.shields.io/badge/made%20with-Rust-b7410e?logo=rust&logoColor=white" alt="Made with Rust">
   <img src="https://img.shields.io/badge/size-13%20MB-6e40c9" alt="13 MB">
