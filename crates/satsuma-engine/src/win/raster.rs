@@ -124,6 +124,24 @@ fn encode_err(e: impl std::fmt::Display) -> Error {
     Error::msg(format!("Could not save the image: {e}"))
 }
 
+/// The sizes Windows asks an icon for: lists, Explorer, the taskbar, the desktop, tiles.
+pub const ICON_SIZES: [u32; 7] = [16, 24, 32, 48, 64, 128, 256];
+
+/// A Windows icon holding every size in [`ICON_SIZES`]. A picture that isn't square is
+/// centred on a transparent square, so nothing is stretched or cut off.
+fn write_ico(img: &RgbaImage, path: &Path) -> Result<()> {
+    use image::codecs::ico::{IcoEncoder, IcoFrame};
+    let side = img.width().max(img.height()).max(1);
+    let mut square = RgbaImage::new(side, side);
+    image::imageops::overlay(&mut square, img, ((side - img.width()) / 2) as i64, ((side - img.height()) / 2) as i64);
+    let mut frames = Vec::new();
+    for size in ICON_SIZES {
+        let scaled = image::imageops::resize(&square, size, size, image::imageops::FilterType::Lanczos3);
+        frames.push(IcoFrame::as_png(scaled.as_raw(), size, size, image::ExtendedColorType::Rgba8).map_err(encode_err)?);
+    }
+    IcoEncoder::new(create(path)?).encode_images(&frames).map_err(encode_err)
+}
+
 /// Writes `img` as `format`. `quality` is 0–1 for lossy formats; `lzw` compresses TIFFs.
 pub fn save(img: &RgbaImage, path: &Path, format: Format, quality: f32, lzw: bool) -> Result<()> {
     save_with_profile(img, path, format, quality, lzw, None)
@@ -157,6 +175,7 @@ pub fn save_with_profile(img: &RgbaImage, path: &Path, format: Format, quality: 
             let mut w = create(path)?;
             bmp::BmpEncoder::new(&mut w).encode(flatten(img).as_raw(), img.width(), img.height(), image::ExtendedColorType::Rgb8).map_err(encode_err)?;
         }
+        Format::Ico => write_ico(img, path)?,
         Format::Gif => {
             let mut enc = gif::GifEncoder::new_with_speed(create(path)?, 10);
             enc.encode_frame(image::Frame::new(img.clone())).map_err(encode_err)?;
@@ -220,7 +239,7 @@ fn encode_avif(img: &RgbaImage, path: &Path, quality: f32) -> Result<()> {
 /// Whether this PC can write `format` as an image.
 pub fn can_write(format: Format) -> bool {
     match format {
-        Format::Jpg | Format::Png | Format::Bmp | Format::Gif | Format::Tiff | Format::Pdf => true,
+        Format::Jpg | Format::Png | Format::Bmp | Format::Ico | Format::Gif | Format::Tiff | Format::Pdf => true,
         Format::Heic => wic::can_encode_heif(),
         Format::Avif => super::env().pick_encoder(&AVIF_ENCODERS).is_some(),
         Format::Webp => super::env().has_encoder("libwebp"),

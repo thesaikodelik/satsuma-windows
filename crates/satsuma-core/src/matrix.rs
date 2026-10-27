@@ -2,8 +2,8 @@
 
 use crate::format::Format::{self, *};
 
-const IMG_IN: &[Format] = &[Jpg, Png, Webp, Heic, Tiff, Svg, Avif, Bmp];
-const IMG_OUT: &[Format] = &[Jpg, Png, Webp, Heic, Tiff, Avif, Bmp, Pdf];
+const IMG_IN: &[Format] = &[Jpg, Png, Webp, Heic, Tiff, Svg, Avif, Bmp, Ico];
+const IMG_OUT: &[Format] = &[Jpg, Png, Webp, Heic, Tiff, Avif, Bmp, Ico, Pdf];
 const AUD: &[Format] = &[Mp3, M4a, Wav, Flac, Ogg, Opus, Aiff, Wma];
 const VID: &[Format] = &[Mp4, Mov, Mkv, Webm, Avi, Wmv];
 const SUB: &[Format] = &[Srt, Vtt];
@@ -101,14 +101,15 @@ mod tests {
     #[test]
     fn matrix_matches_the_original() {
         // The website matrix (E1) has exactly the advertised 275 paths (E9); the 2.0 app adds
-        // image → DOCX for the 8 image inputs (E10).
-        assert_eq!(total_conversion_paths(), 275 + 8);
+        // image → DOCX for the 8 image inputs (E10). Windows adds ICO: 8 images → ICO, and ICO
+        // → the 7 other image formats, PDF and DOCX.
+        assert_eq!(total_conversion_paths(), 275 + 8 + 8 + 9);
     }
 
     #[test]
     fn jpg_wheel_matches_the_screen_recording() {
         // E10: PNG, WEBP, HEIC, TIFF, AVIF, BMP, PDF, DOCX clockwise from the top.
-        assert_eq!(conversion_targets(Jpg), vec![Png, Webp, Heic, Tiff, Avif, Bmp, Pdf, Docx]);
+        assert_eq!(conversion_targets(Jpg), vec![Png, Webp, Heic, Tiff, Avif, Bmp, Ico, Pdf, Docx]);
     }
 
     #[test]
@@ -174,7 +175,7 @@ mod tests {
     fn mixed_image_selection_keeps_shared_targets() {
         let t = conversion_targets_for_selection(&[Jpg, Png]);
         // PNG is offered (the PNG file is skipped), as is JPG (the JPG file is skipped).
-        assert_eq!(t, vec![Png, Webp, Heic, Tiff, Avif, Bmp, Pdf, Docx, Jpg]);
+        assert_eq!(t, vec![Png, Webp, Heic, Tiff, Avif, Bmp, Ico, Pdf, Docx, Jpg]);
     }
 
     #[test]

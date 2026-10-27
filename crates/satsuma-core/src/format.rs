@@ -16,6 +16,8 @@ pub enum Format {
     Svg,
     Avif,
     Bmp,
+    /// Windows icon (several sizes in one file).
+    Ico,
     // Animated image (treated as video)
     Gif,
     // Audio
@@ -76,7 +78,7 @@ pub enum Category {
 }
 
 impl Format {
-    pub const ALL: [Format; 46] = [
+    pub const ALL: [Format; 47] = [
         Format::Jpg,
         Format::Png,
         Format::Webp,
@@ -85,6 +87,7 @@ impl Format {
         Format::Svg,
         Format::Avif,
         Format::Bmp,
+        Format::Ico,
         Format::Gif,
         Format::Mp3,
         Format::M4a,
@@ -137,6 +140,7 @@ impl Format {
             Svg => "svg",
             Avif => "avif",
             Bmp => "bmp",
+            Ico => "ico",
             Gif => "gif",
             Mp3 => "mp3",
             M4a => "m4a",
@@ -204,7 +208,7 @@ impl Format {
     pub fn category(self) -> Category {
         use Format::*;
         match self {
-            Jpg | Png | Webp | Heic | Tiff | Svg | Avif | Bmp => Category::Image,
+            Jpg | Png | Webp | Heic | Tiff | Svg | Avif | Bmp | Ico => Category::Image,
             Mp3 | M4a | Wav | Flac | Ogg | Opus | Aiff | Wma => Category::Audio,
             Gif | Mp4 | Mov | Mkv | Webm | Avi | Wmv => Category::Video,
             Srt | Vtt => Category::Subtitle,
@@ -231,6 +235,7 @@ impl Format {
             "svg" => Svg,
             "avif" => Avif,
             "bmp" => Bmp,
+            "ico" => Ico,
             "gif" => Gif,
             "mp3" => Mp3,
             "m4a" => M4a,

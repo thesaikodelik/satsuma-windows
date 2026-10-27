@@ -21,6 +21,7 @@ pub fn sips_format(f: Format) -> Option<&'static str> {
         Tiff => "tiff",
         Avif => "avif",
         Bmp => "bmp",
+        Ico => "ico",
         Pdf => "pdf",
         Gif => "gif",
         _ => return None,

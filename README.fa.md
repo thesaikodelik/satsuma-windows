@@ -104,7 +104,7 @@ PDFها یکی می‌شوند و عکس پس‌زمینه می‌گیرد. هم
 
 | | تبدیل به |
 | --- | --- |
-| 🖼 **عکس**: JPG، PNG، WebP، HEIC، AVIF، TIFF، BMP، SVG | به یکدیگر، PDF یا Word (متن عکس خوانده می‌شود) |
+| 🖼 **عکس**: JPG، PNG، WebP، HEIC، AVIF، TIFF، BMP، SVG، ICO | به یکدیگر، **ICO** (آیکون ویندوز با همه‌ی اندازه‌ها از ۱۶ تا ۲۵۶ پیکسل)، PDF یا Word (متن عکس خوانده می‌شود) |
 | 🎬 **ویدیو**: MP4، MOV، MKV، WebM، AVI، WMV، GIF | به یکدیگر، GIF یا MP3 |
 | 🎵 **صدا**: MP3، M4A، WAV، FLAC، OGG، Opus، AIFF، WMA | به یکدیگر |
 | 📄 **PDF** | Word، **PowerPoint**، **Excel**، JPG، PNG، EPUB، TXT، Markdown |

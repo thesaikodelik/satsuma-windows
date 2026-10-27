@@ -85,7 +85,7 @@ keys move around it, Enter applies.
 
 | | Convert to |
 | --- | --- |
-| 🖼 **Images**: JPG, PNG, WebP, HEIC, AVIF, TIFF, BMP, SVG | each other, PDF or Word (text is recognised) |
+| 🖼 **Images**: JPG, PNG, WebP, HEIC, AVIF, TIFF, BMP, SVG, ICO | each other, **ICO** (a Windows icon with every size, 16 to 256 px), PDF or Word (text is recognised) |
 | 🎬 **Video**: MP4, MOV, MKV, WebM, AVI, WMV, GIF | each other, GIF or MP3 |
 | 🎵 **Audio**: MP3, M4A, WAV, FLAC, OGG, Opus, AIFF, WMA | each other |
 | 📄 **PDF** | Word, **PowerPoint**, **Excel**, JPG, PNG, EPUB, TXT, Markdown |

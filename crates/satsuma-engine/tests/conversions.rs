@@ -101,6 +101,34 @@ fn images_convert_to_every_output_format() {
 }
 
 #[test]
+fn pictures_become_windows_icons() {
+    let dir = tempfile::tempdir().unwrap();
+    // A wide picture: red on the left half, blue on the right, on a white strip.
+    let wide = dir.path().join("logo.png");
+    image::RgbaImage::from_fn(300, 100, |x, _| if x < 150 { image::Rgba([220, 30, 30, 255]) } else { image::Rgba([30, 30, 220, 255]) }).save(&wide).unwrap();
+    let ico = convert(&wide, Format::Ico);
+    assert_eq!(ico.file_name().unwrap(), "logo.ico");
+    let bytes = std::fs::read(&ico).unwrap();
+    // ICONDIR: reserved 0, type 1, count; then one 16-byte entry per size (0 means 256).
+    assert_eq!(&bytes[0..4], &[0, 0, 1, 0]);
+    let count = u16::from_le_bytes([bytes[4], bytes[5]]) as usize;
+    let sizes: Vec<u32> = (0..count).map(|i| match bytes[6 + i * 16] { 0 => 256, s => s as u32 }).collect();
+    assert_eq!(sizes, vec![16, 24, 32, 48, 64, 128, 256]);
+    // The largest frame keeps the shape: transparent above and below the strip.
+    let img = image::open(&ico).unwrap().to_rgba8();
+    assert_eq!(img.dimensions(), (256, 256));
+    assert_eq!(img.get_pixel(128, 10).0[3], 0, "top stays transparent");
+    assert!(img.get_pixel(40, 128).0[0] > 180 && img.get_pixel(215, 128).0[2] > 180, "colours stay in place");
+    // A JPG works too, and an icon converts back to PNG.
+    let jpg = convert(&wide, Format::Jpg);
+    let ico2 = convert(&jpg, Format::Ico);
+    assert!(ico2.exists());
+    let back = convert(&ico, Format::Png);
+    assert_eq!(image::image_dimensions(&back).unwrap(), (256, 256));
+    no_partials_left(dir.path());
+}
+
+#[test]
 fn svg_input_renders() {
     let dir = tempfile::tempdir().unwrap();
     let svg = dir.path().join("logo.svg");
